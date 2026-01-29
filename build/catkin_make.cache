@@ -1,0 +1,2 @@
+carla_msgs:mpc_4state:mpcbitch
+-DCATKIN_DEVEL_PREFIX=/home/gihsiu0530/mpc/devel -DCMAKE_INSTALL_PREFIX=/home/gihsiu0530/mpc/install -G Unix Makefiles

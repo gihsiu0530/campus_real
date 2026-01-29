@@ -1,0 +1,8 @@
+prefix=/home/gihsiu0530/mpc/devel
+
+Name: mpc_4state
+Description: Description of mpc_4state
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 

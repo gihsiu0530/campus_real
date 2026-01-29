@@ -1,0 +1,8 @@
+prefix=/home/gihsiu0530/mpc/devel
+
+Name: mpcbitch
+Description: Description of mpcbitch
+Version: 0.0.0
+Cflags: 
+Libs: -L${prefix}/lib 
+Requires: 
