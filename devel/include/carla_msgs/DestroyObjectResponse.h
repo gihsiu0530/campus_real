@@ -185,8 +185,6 @@ struct Printer< ::carla_msgs::DestroyObjectResponse_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::DestroyObjectResponse_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "success: ";
     Printer<uint8_t>::stream(s, indent + "  ", v.success);
   }

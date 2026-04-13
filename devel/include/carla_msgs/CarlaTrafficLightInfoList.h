@@ -249,21 +249,14 @@ struct Printer< ::carla_msgs::CarlaTrafficLightInfoList_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaTrafficLightInfoList_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
-    s << indent << "traffic_lights: ";
-    if (v.traffic_lights.empty() || false)
-      s << "[";
+    s << indent << "traffic_lights[]" << std::endl;
     for (size_t i = 0; i < v.traffic_lights.size(); ++i)
     {
-      if (false && i > 0)
-        s << ", ";
-      else if (!false)
-        s << std::endl << indent << "  -";
-      Printer< ::carla_msgs::CarlaTrafficLightInfo_<ContainerAllocator> >::stream(s, false ? std::string() : indent + "    ", v.traffic_lights[i]);
+      s << indent << "  traffic_lights[" << i << "]: ";
+      s << std::endl;
+      s << indent;
+      Printer< ::carla_msgs::CarlaTrafficLightInfo_<ContainerAllocator> >::stream(s, indent + "    ", v.traffic_lights[i]);
     }
-    if (v.traffic_lights.empty() || false)
-      s << "]";
   }
 };
 

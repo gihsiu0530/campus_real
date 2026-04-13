@@ -254,17 +254,13 @@ struct Printer< ::carla_msgs::CarlaTrafficLightInfo_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaTrafficLightInfo_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "id: ";
     Printer<uint32_t>::stream(s, indent + "  ", v.id);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "transform: ";
+    s << std::endl;
     Printer< ::geometry_msgs::Pose_<ContainerAllocator> >::stream(s, indent + "  ", v.transform);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "trigger_volume: ";
+    s << std::endl;
     Printer< ::carla_msgs::CarlaBoundingBox_<ContainerAllocator> >::stream(s, indent + "  ", v.trigger_volume);
   }
 };

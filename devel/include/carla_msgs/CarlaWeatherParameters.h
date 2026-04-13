@@ -255,40 +255,22 @@ struct Printer< ::carla_msgs::CarlaWeatherParameters_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaWeatherParameters_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "cloudiness: ";
     Printer<float>::stream(s, indent + "  ", v.cloudiness);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "precipitation: ";
     Printer<float>::stream(s, indent + "  ", v.precipitation);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "precipitation_deposits: ";
     Printer<float>::stream(s, indent + "  ", v.precipitation_deposits);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "wind_intensity: ";
     Printer<float>::stream(s, indent + "  ", v.wind_intensity);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "fog_density: ";
     Printer<float>::stream(s, indent + "  ", v.fog_density);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "fog_distance: ";
     Printer<float>::stream(s, indent + "  ", v.fog_distance);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "wetness: ";
     Printer<float>::stream(s, indent + "  ", v.wetness);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "sun_azimuth_angle: ";
     Printer<float>::stream(s, indent + "  ", v.sun_azimuth_angle);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "sun_altitude_angle: ";
     Printer<float>::stream(s, indent + "  ", v.sun_altitude_angle);
   }

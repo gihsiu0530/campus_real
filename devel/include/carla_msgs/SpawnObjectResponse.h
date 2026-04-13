@@ -193,12 +193,8 @@ struct Printer< ::carla_msgs::SpawnObjectResponse_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::SpawnObjectResponse_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "id: ";
     Printer<int32_t>::stream(s, indent + "  ", v.id);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "error_string: ";
     Printer<std::basic_string<char, std::char_traits<char>, typename std::allocator_traits<ContainerAllocator>::template rebind_alloc<char>>>::stream(s, indent + "  ", v.error_string);
   }

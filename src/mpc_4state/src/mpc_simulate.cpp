@@ -100,7 +100,7 @@ int main(int argc, char** argv)
     ros::Subscriber turn_sub = nh.subscribe("turn_index", 10, turnIndexCallback);
     ros::Subscriber start_id_sub = nh.subscribe("/start_id", 10, startidCallback);
 
-    std::ofstream csv_file("/home/gihsiu0530/mpc/mirror_positions.csv");
+    std::ofstream csv_file("/home/cyc/campus_ws/mirror_positions.csv");
     if (!csv_file.is_open()) {
         ROS_ERROR("無法打開 mirror_positions.csv 進行寫入！");
         return 1;
@@ -186,7 +186,7 @@ int main(int argc, char** argv)
         marker.action = visualization_msgs::Marker::ADD;
 
         marker.scale.x = marker.scale.y = marker.scale.z = 1.0;
-        marker.mesh_resource = "file:///home/gihsiu0530/golf.stl";
+        marker.mesh_resource = "file:///home/cyc/golf.stl";
         marker.mesh_use_embedded_materials = true;
 
         //int turn_index_ = 100000;//43 //112 //65 // 61 //47 //33

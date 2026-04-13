@@ -240,17 +240,13 @@ struct Printer< ::carla_msgs::CarlaCollisionEvent_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaCollisionEvent_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "header: ";
+    s << std::endl;
     Printer< ::std_msgs::Header_<ContainerAllocator> >::stream(s, indent + "  ", v.header);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "other_actor_id: ";
     Printer<uint32_t>::stream(s, indent + "  ", v.other_actor_id);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "normal_impulse: ";
+    s << std::endl;
     Printer< ::geometry_msgs::Vector3_<ContainerAllocator> >::stream(s, indent + "  ", v.normal_impulse);
   }
 };

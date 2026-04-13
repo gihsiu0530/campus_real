@@ -222,16 +222,11 @@ struct Printer< ::carla_msgs::CarlaWalkerControl_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaWalkerControl_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "direction: ";
+    s << std::endl;
     Printer< ::geometry_msgs::Vector3_<ContainerAllocator> >::stream(s, indent + "  ", v.direction);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "speed: ";
     Printer<float>::stream(s, indent + "  ", v.speed);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "jump: ";
     Printer<uint8_t>::stream(s, indent + "  ", v.jump);
   }

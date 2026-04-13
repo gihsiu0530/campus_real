@@ -1,4 +1,4 @@
-prefix=/home/gihsiu0530/mpc/devel
+prefix=/home/cyc/campus_ws/devel
 
 Name: mpc_4state
 Description: Description of mpc_4state

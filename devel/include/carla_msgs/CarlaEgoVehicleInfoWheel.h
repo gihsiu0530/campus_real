@@ -252,33 +252,20 @@ struct Printer< ::carla_msgs::CarlaEgoVehicleInfoWheel_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaEgoVehicleInfoWheel_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "tire_friction: ";
     Printer<float>::stream(s, indent + "  ", v.tire_friction);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "damping_rate: ";
     Printer<float>::stream(s, indent + "  ", v.damping_rate);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "max_steer_angle: ";
     Printer<float>::stream(s, indent + "  ", v.max_steer_angle);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "radius: ";
     Printer<float>::stream(s, indent + "  ", v.radius);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "max_brake_torque: ";
     Printer<float>::stream(s, indent + "  ", v.max_brake_torque);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "max_handbrake_torque: ";
     Printer<float>::stream(s, indent + "  ", v.max_handbrake_torque);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "position: ";
+    s << std::endl;
     Printer< ::geometry_msgs::Vector3_<ContainerAllocator> >::stream(s, indent + "  ", v.position);
   }
 };

@@ -185,21 +185,12 @@ struct Printer< ::carla_msgs::GetBlueprintsResponse_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::GetBlueprintsResponse_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
-    s << indent << "blueprints: ";
-    if (v.blueprints.empty() || true)
-      s << "[";
+    s << indent << "blueprints[]" << std::endl;
     for (size_t i = 0; i < v.blueprints.size(); ++i)
     {
-      if (true && i > 0)
-        s << ", ";
-      else if (!true)
-        s << std::endl << indent << "  -";
-      Printer<std::basic_string<char, std::char_traits<char>, typename std::allocator_traits<ContainerAllocator>::template rebind_alloc<char>>>::stream(s, true ? std::string() : indent + "    ", v.blueprints[i]);
+      s << indent << "  blueprints[" << i << "]: ";
+      Printer<std::basic_string<char, std::char_traits<char>, typename std::allocator_traits<ContainerAllocator>::template rebind_alloc<char>>>::stream(s, indent + "  ", v.blueprints[i]);
     }
-    if (v.blueprints.empty() || true)
-      s << "]";
   }
 };
 

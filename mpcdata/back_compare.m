@@ -1,6 +1,6 @@
 % 讀取資料
-real_data = readtable(['/home/gihsiu0530//mpc/mpcdata/simulation_40ms_success_v2.csv']);
-back_data = readtable('/home/gihsiu0530/path_mpc_simulate/smoothed/Final_Path_Selective_Smooth.csv');
+real_data = readtable(['/home/cyc/campus_ws/mpcdata/real.csv']);
+back_data = readtable('/home/cyc/campus_ws/src/mpc_4state/src/transformed_points.csv');
 pxx = real_data.px;
 pyy = real_data.py;
 x_back = back_data.x;

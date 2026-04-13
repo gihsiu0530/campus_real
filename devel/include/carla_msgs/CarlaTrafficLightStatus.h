@@ -239,12 +239,8 @@ struct Printer< ::carla_msgs::CarlaTrafficLightStatus_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaTrafficLightStatus_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "id: ";
     Printer<uint32_t>::stream(s, indent + "  ", v.id);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "state: ";
     Printer<uint8_t>::stream(s, indent + "  ", v.state);
   }

@@ -1,4 +1,4 @@
-prefix=/home/gihsiu0530/mpc/install
+prefix=/home/cyc/campus_ws/install
 
 Name: mpcbitch
 Description: Description of mpcbitch

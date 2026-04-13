@@ -2,16 +2,19 @@
 // #define MPC_PLANNER_H
 
 
-#include <geometry_msgs/PoseStamped.h>
+#include <Eigen/Sparse>
 #include <geometry_msgs/PointStamped.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <std_msgs/Float64MultiArray.h>
 
-//#include "local_planner.h"
+// #include "local_planner.h"
 #include <ros/ros.h>
-//#include "math_helper.h"
+// #include "math_helper.h"
 #include <eigen3/Eigen/Dense>
 #include <nav_msgs/Odometry.h>
-#include <std_msgs/Float64.h>
 #include <nav_msgs/Path.h>
+#include <std_msgs/Float32.h>
+#include <std_msgs/Float64.h>
 #include <std_msgs/Int32.h>
 
 
@@ -38,6 +41,7 @@
             void turnIndex2Callback(const std_msgs::Int32::ConstPtr &msg);
             void vRealCallback(const std_msgs::Float64::ConstPtr &msg);
             void pointCallback(const geometry_msgs::PointStamped::ConstPtr& msg);
+            void steerCallback(const std_msgs::Float32::ConstPtr &msg);
 
             void calculatempc(const std_msgs::Float64MultiArrayConstPtr &msg);
 
@@ -106,6 +110,7 @@
             ros::Subscriber vreal_sub;
             ros::NodeHandle nh_;
             ros::NodeHandle private_nh_;
+            ros::Subscriber steer_sub;
             std::string filename_;
 
             std::vector<double> global_path_x;
@@ -120,6 +125,7 @@
             int count_back = 0;
             int last_start_id_ = -1;
             double v_real = 0.0000001;
+            double steer_real = 0.0;
             geometry_msgs::Point point;
 
             std::vector<double> org_wp_rearange_waypoint_x;
@@ -159,8 +165,8 @@
             nav_msgs::Odometry       latest_odom_;
             bool                     odom_received_ = false;
 
-            double min_v_forward_ = 0.8;   // 前進最小速度 0.6
-            double max_v_forward_ = 2;   // 前進最大速度 4
+            double min_v_forward_ = 2;   // 前進最小速度 0.6
+            double max_v_forward_ = 4;   // 前進最大速度 4
             double min_v_reverse_ = 0.22;   // 倒退最小速度（較慢）
             double max_v_reverse_ = 0.40;   // 倒退最大速度（較小）
              
@@ -179,7 +185,7 @@
             //angle 
             double max_delta_ = 0.45;             //最大角度
             double min_delta_ = -0.45;            //最小角度
-            double max_delta_inc_= 0.0067;        //角度差值
+            double max_delta_inc_= 0.0084;        //角度差值 //0.0067
 
             double caculate_mpc_start = 0;
             double caculate_mpc_finish = 0; 

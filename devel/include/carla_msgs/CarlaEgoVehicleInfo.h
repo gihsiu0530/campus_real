@@ -334,76 +334,42 @@ struct Printer< ::carla_msgs::CarlaEgoVehicleInfo_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaEgoVehicleInfo_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "id: ";
     Printer<uint32_t>::stream(s, indent + "  ", v.id);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "type: ";
     Printer<std::basic_string<char, std::char_traits<char>, typename std::allocator_traits<ContainerAllocator>::template rebind_alloc<char>>>::stream(s, indent + "  ", v.type);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "rolename: ";
     Printer<std::basic_string<char, std::char_traits<char>, typename std::allocator_traits<ContainerAllocator>::template rebind_alloc<char>>>::stream(s, indent + "  ", v.rolename);
-    if (true || !indent.empty())
-      s << std::endl;
-    s << indent << "wheels: ";
-    if (v.wheels.empty() || false)
-      s << "[";
+    s << indent << "wheels[]" << std::endl;
     for (size_t i = 0; i < v.wheels.size(); ++i)
     {
-      if (false && i > 0)
-        s << ", ";
-      else if (!false)
-        s << std::endl << indent << "  -";
-      Printer< ::carla_msgs::CarlaEgoVehicleInfoWheel_<ContainerAllocator> >::stream(s, false ? std::string() : indent + "    ", v.wheels[i]);
-    }
-    if (v.wheels.empty() || false)
-      s << "]";
-    if (true || !indent.empty())
+      s << indent << "  wheels[" << i << "]: ";
       s << std::endl;
+      s << indent;
+      Printer< ::carla_msgs::CarlaEgoVehicleInfoWheel_<ContainerAllocator> >::stream(s, indent + "    ", v.wheels[i]);
+    }
     s << indent << "max_rpm: ";
     Printer<float>::stream(s, indent + "  ", v.max_rpm);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "moi: ";
     Printer<float>::stream(s, indent + "  ", v.moi);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "damping_rate_full_throttle: ";
     Printer<float>::stream(s, indent + "  ", v.damping_rate_full_throttle);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "damping_rate_zero_throttle_clutch_engaged: ";
     Printer<float>::stream(s, indent + "  ", v.damping_rate_zero_throttle_clutch_engaged);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "damping_rate_zero_throttle_clutch_disengaged: ";
     Printer<float>::stream(s, indent + "  ", v.damping_rate_zero_throttle_clutch_disengaged);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "use_gear_autobox: ";
     Printer<uint8_t>::stream(s, indent + "  ", v.use_gear_autobox);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "gear_switch_time: ";
     Printer<float>::stream(s, indent + "  ", v.gear_switch_time);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "clutch_strength: ";
     Printer<float>::stream(s, indent + "  ", v.clutch_strength);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "mass: ";
     Printer<float>::stream(s, indent + "  ", v.mass);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "drag_coefficient: ";
     Printer<float>::stream(s, indent + "  ", v.drag_coefficient);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "center_of_mass: ";
+    s << std::endl;
     Printer< ::geometry_msgs::Vector3_<ContainerAllocator> >::stream(s, indent + "  ", v.center_of_mass);
   }
 };

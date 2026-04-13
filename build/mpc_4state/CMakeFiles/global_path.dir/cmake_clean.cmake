@@ -1,7 +1,8 @@
 file(REMOVE_RECURSE
-  "/home/gihsiu0530/mpc/devel/lib/mpc_4state/global_path"
-  "/home/gihsiu0530/mpc/devel/lib/mpc_4state/global_path.pdb"
+  "/home/cyc/campus_ws/devel/lib/mpc_4state/global_path"
+  "/home/cyc/campus_ws/devel/lib/mpc_4state/global_path.pdb"
   "CMakeFiles/global_path.dir/src/global_path.cpp.o"
+  "CMakeFiles/global_path.dir/src/global_path.cpp.o.d"
 )
 
 # Per-language clean rules from dependency scanning.

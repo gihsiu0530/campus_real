@@ -1,4 +1,4 @@
-prefix=/home/gihsiu0530/mpc/install
+prefix=/home/cyc/campus_ws/install
 
 Name: carla_msgs
 Description: Description of carla_msgs

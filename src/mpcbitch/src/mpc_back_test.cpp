@@ -27,6 +27,7 @@ ros::Publisher carla_control_pub;
 
 static double prev_theta = 0.0;
 static bool reversed_mode = false;
+double u_delta  = 0;
 
 double MPCPlanner_path::dist(const geometry_msgs::PoseStamped& node1,const geometry_msgs::PoseStamped& node2)
 {
@@ -117,7 +118,7 @@ void MPCPlanner_path::initialize()
     Eigen::Vector2d u_prev;
     u_prev = Eigen::Vector2d(min_v_, 0);
 
-    private_nh_.param<std::string>("save_filename", filename_, "/home/gihsiu0530/mpc/mpcdata/simulation.csv");
+    private_nh_.param<std::string>("save_filename", filename_, "/home/cyc/campus_ws/mpcdata/real.csv");
     ROS_INFO("Data will be saved to: %s", filename_.c_str());
 
     ROS_INFO("MPC Planner initialized START");
@@ -145,8 +146,8 @@ void MPCPlanner_path::initialize()
         //p_ = 20;                    //預測時間域
         //m_ = 2;                    //控制時域*/
 
-        p_ = 40;//40   //30             //預測時間域
-        m_ = 15;//15       //8             //控制時域*/
+        p_ = 45;//40   //30             //預測時間域
+        m_ = 10;//15       //8             //控制時域*/
 
 
         //權重矩陣：用於懲罰在進行路徑追蹤控制時的狀態誤差[x,y,theta,v] 
@@ -155,25 +156,25 @@ void MPCPlanner_path::initialize()
         int dim_u = 2;
         Q_.resize(dim_x, dim_x);         
         Q_.setZero();
-        Q_(0,0) = 500; //500  //600
-        Q_(1,1) = 500; //500  //600 //
-        Q_(2,2) = 300; //300  //400
-        Q_(3,3) = 100;
+        Q_(0, 0) = 500; // 500  //600  // 縱向位置誤差 
+        Q_(1, 1) = 500; // 400  // CTE
+        Q_(2, 2) = 400; // 400  //航向角誤差
+        Q_(3, 3) = 100;                //速度誤差
 
-        //權重矩陣：用於懲罰在進行路徑追蹤控制時的輸入誤差[v,w]
-        //宣告 2*2 矩陣 [R_ 0 ]
-        //             [0  R_]
+        // 權重矩陣：用於懲罰在進行路徑追蹤控制時的輸入誤差[v,w]
+        // 宣告 2*2 矩陣 [R_ 0 ]
+        //              [0  R_]
         R_.resize(dim_u, dim_u);
         R_.setZero();
-        R_(0,0) = 50;
-        R_(1,1) = 1;  //20  //10 //
+        R_(0, 0) = 50;       //加速度變化率
+        R_(1, 1) = 30;  //50 //方向盤變化率
 
         //採樣時間
         double controller_frequency = 10;
         d_t_ = 1/controller_frequency;
         
         global_path_sub = nh_.subscribe("array_topic",1000,&MPCPlanner_path::setPlan,this);  
-        car_pose_sub = nh_.subscribe("/mpc_new_pose",1000,&MPCPlanner_path::computelocalpath,this);
+        car_pose_sub = nh_.subscribe("/odom",1000,&MPCPlanner_path::computelocalpath,this);
 
         local_path_to_matlab_pub  = nh_.advertise<std_msgs::Float64MultiArray>("/local_path",1000);
 
@@ -183,10 +184,12 @@ void MPCPlanner_path::initialize()
         stop_signal_pub = nh_.advertise<std_msgs::Bool>("/stop_signal", 1000);
 
         start_id_pub = nh_.advertise<std_msgs::Int32>("/start_id", 1000);
-
+        vreal_sub = nh_.subscribe<std_msgs::Float64>("v_real", 1000, &MPCPlanner_path::vRealCallback, this);
         max_v_sub = nh_.subscribe("/max_v", 10, &MPCPlanner_path::maxVCallback, this);
         max_v_inc_sub = nh_.subscribe("/max_v_inc", 10, &MPCPlanner_path::maxVIncCallback, this);
         turn_sub = nh_.subscribe("turn_index", 10, &MPCPlanner_path::turnIndexCallback, this);
+        steer_sub = nh_.subscribe("/steering_sensor", 10, &MPCPlanner_path::steerCallback, this);
+
         //point_sub = nh_.subscribe("split_point", 10,&MPCPlanner_path::pointCallback, this);
 
         carla_control_pub = nh_.advertise<carla_msgs::CarlaEgoVehicleControl>("/carla/ego_vehicle/vehicle_control_cmd", 1);
@@ -237,6 +240,22 @@ void MPCPlanner_path::maxVIncCallback(const std_msgs::Float64::ConstPtr &msg)
     max_v_inc_ = msg->data;
     ROS_INFO("Updated max_v_inc_ to: %f", max_v_inc_);
 }
+
+void MPCPlanner_path::vRealCallback(const std_msgs::Float64::ConstPtr &msg)
+{
+    v_real = msg->data;
+    ROS_INFO("v_real: %f", v_real);
+    if(v_real == 0) 
+    {
+        v_real = 0.0001;  // 避免除以零
+    }
+}
+
+void MPCPlanner_path::steerCallback(const std_msgs::Float32::ConstPtr &msg)
+{
+    steer_real = -(msg->data / 19.8) * (M_PI / 180.0);
+    ROS_INFO("steer_real: %f", steer_real);
+}
     
 void publishStopSignal(bool stop) 
 {
@@ -257,10 +276,15 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
     theta1 = tf2::getYaw(msg->pose.pose.orientation);
     vx = msg->twist.twist.linear.x;
     vy = msg->twist.twist.linear.y;
-    omega = msg->twist.twist.angular.z;
+    
 
-    double v_body =  std::cos(theta1) * vx + std::sin(theta1) * vy;
+    double v_body = v_real;
 
+    double offset = -0.5;
+    px = px + offset * cos(theta1);
+    py = py + offset * sin(theta1);
+
+    omega = v_body * tan(u_delta) / L;
     //double vt = std::hypot(vx,vy);
     double vt = v_body;
     
@@ -273,7 +297,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
     base_odom.twist.twist.linear.y = 0;
     base_odom.twist.twist.angular.z = omega;
     
-    double delta = atan(base_odom.twist.twist.angular.z * L / vt);
+    double delta = atan(omega * L / vt);
 
     std::cout<<"car_x = "<< px <<std::endl;
     std::cout<<"car_y = "<< py <<std::endl;
@@ -558,74 +582,148 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
             if (diff < -M_PI) theta_ref[i] += 2.0 * M_PI;
         }
 
-        // int M = 4;  // 取樣點數
-        // const int N = (int)global_path_x.size();
+//=================================================================
+    int M = 8 ; // 4  mirror_back4  //12 for 0.2m間隔  //5 for 0.5m間隔
+               // //轉彎的時候看後N個路徑點的方向盤角度做角度平均
+    double kappa_sum = 0.0;
 
-        // // 依模式決定允許的索引範圍：
-        // // 前進段：只能用 [0, turn_index_]；倒車段：只能用 [turn_index_, N-1]
-        // int turn_clamped = std::max(0, std::min(turn_index_, N - 1));
-        // int lo = reversed_mode ? turn_clamped : 0;
-        // int hi = reversed_mode ? (N - 1)      : turn_clamped;
+    int steer_lookahead = 1; // p4 2
 
-        // // 先把 base index 夾在允許範圍內，避免 nearestIndex 落在區間外
-        // int base = std::max(lo, std::min(nearestIndex, hi));
-
-        // double kappa_sum = 0.0;
-        // for (int j = 0; j < M; ++j)
-        // {
-        //     // 仍沿用「往前看 j 點」的策略，但強制落在 [lo, hi]
-        //     int ii = base + j;
-        //     if (ii > hi) ii = hi;      // 越界就黏在邊界
-        //     if (ii < lo) ii = lo;
+    for (int j = 0; j < M; ++j) {
+      int ii = std::min(nearestIndex + steer_lookahead + j,
+                        (int)global_path_x.size() - 1);
+      kappa_sum += computeKappaAt(ii);
+    }
+    kappa_avg_steering = kappa_sum / double(M);
+    //=================================================================
 
 
+    // ==========================================
+    // --- 依照「曲率大小」動態調整看前方的點數 M ---
+    // ==========================================
+    
+    // int steer_lookahead = 1; // 往前預視的起始偏移量
+    
+    // // 1. 先探測車頭前方的「局部最大曲率」
+    // // 看前方最近 3 個點，抓出最大的彎度(取絕對值)，避免單一雜訊干擾
+    // double local_max_kappa = 0.0;
+    // for (int k = 0; k < 3; ++k) {
+    //     int check_idx = std::min(nearestIndex + steer_lookahead + k, (int)global_path_x.size() - 1);
+    //     local_max_kappa = std::max(local_max_kappa, std::fabs(computeKappaAt(check_idx)));
+    // }
+
+    // // 2. 設定 M 的「天花板」與「地板」 (這兩個數字你可以自由微調)
+    // int M_max = 13;  // 直道時，最多看 18 個點 (看很遠，保持直行穩定)
+    // int M_min = 6;   // 急彎時，最少看 5 個點 (看很近，緊貼彎角不提早回正)
+    
+    // // 設定多彎算「急彎」(例如曲率達到 0.15 rad/m 就視為最急的彎)
+    // double kappa_threshold = 0.18; 
+    
+    // // 計算彎度比例 (0.0 代表全直，1.0 代表達到急彎門檻)
+    // double kappa_ratio = std::min(local_max_kappa / kappa_threshold, 1.0);
+    
+    // // 3. 線性內插計算當下的「動態點數 M」
+    // // 邏輯：曲率越大(kappa_ratio 越接近 1)，M 會被扣得越多(變小)；曲率越小，M 越大
+    // int dynamic_M = M_max - static_cast<int>(std::round(kappa_ratio * (M_max - M_min)));
+
+    // // 防呆機制，確保 dynamic_M 絕對落在 M_min 到 M_max 之間
+    // dynamic_M = std::max(M_min, std::min(M_max, dynamic_M));
+
+    // // 4. 依照算出來的 dynamic_M，去加總未來的方向盤曲率
+    // double kappa_sum = 0.0;
+    // int valid_points_count = 0;
+
+    // for (int j = 0; j < dynamic_M; ++j) {
+    //   int ii = std::min(nearestIndex + steer_lookahead + j, (int)global_path_x.size() - 1);
+      
+    //   kappa_sum += computeKappaAt(ii);
+    //   valid_points_count++;
+      
+    //   // 如果已經讀到陣列最後一個點，提早結束
+    //   if (ii == (int)global_path_x.size() - 1) {
+    //     break;
+    //   }
+    // }
+
+    // // 防呆除以零
+    // kappa_avg_steering = kappa_sum / std::max(1.0, double(valid_points_count));
+    // ==========================================
 
 
 
-        //     kappa_sum += computeKappaAt(ii);
-        // }
-        // kappa_avg_steering = kappa_sum / double(M);
+    // ==========================================
+    // --- 修改後的設計：看前方固定「物理距離」 ---2026/03/31
+    // ==========================================
+    
+    // int steer_lookahead = 1; // 往前預視的起始偏移量
 
-        int M = 5; //4  mirror_back4  //12 for 0.2m間隔  //5 for 0.5m間隔 //轉彎的時候看後N個路徑點的方向盤角度做角度平均
-        double kappa_sum = 0.0;
+    // // 1. 先探測車頭前方的「局部最大曲率」
+    // // 為了避免單一點的雜訊，我們看前方最近 3 個點，抓出最大的彎度(取絕對值)
+    // double local_max_kappa = 0.0;
+    // for (int k = 0; k < 3; ++k) {
+    //     int check_idx = std::min(nearestIndex + steer_lookahead + k, (int)global_path_x.size() - 1);
+    //     local_max_kappa = std::max(local_max_kappa, std::fabs(computeKappaAt(check_idx)));
+    // }
 
+    // // 2. 設定預視距離的「天花板」與「地板」 (你可以微調這兩個數字)
+    // double max_lookahead_dist = 3.5;  // 直道時，最遠看 4.0 公尺 (保持直行穩定，不畫龍)
+    // double min_lookahead_dist = 2.5;  // 急彎時，最近看 2.0 公尺 (精準貼死彎角，不提早回正)
+    
+    // // 設定多彎算「急彎」(例如曲率達到 0.3 rad/m 就視為最急的彎)
+    // double kappa_threshold = 0.2; 
+    
+    // // 計算彎度比例 (0.0 代表全直，1.0 代表達到急彎門檻)
+    // double kappa_ratio = std::min(local_max_kappa / kappa_threshold, 1.0);
+    
+    // // 3. 線性內插計算當下的「目標預視距離」
+    // // 邏輯：曲率越大(kappa_ratio 越接近 1)，看越近；曲率越小，看越遠
+    // double target_lookahead_dist_m = max_lookahead_dist - kappa_ratio * (max_lookahead_dist - min_lookahead_dist);
 
-        //for (int j = 0; j < M; ++j) 
-        // {
-            //int ii = std::min(proj_idx + j, (int)global_path_x.size() - 1);
-        //     int ii = std::min(nearestIndex + j, (int)global_path_x.size() - 1);
-        //     kappa_sum += computeKappaAt(ii);
-        // }
-        // kappa_avg_steering = kappa_sum / double(M);
+    // // 4. 依照算出來的距離，去加總未來的方向盤曲率
+    // double kappa_sum = 0.0;
+    // int valid_points_count = 0;
+    // double accumulated_dist = 0.0;
 
-        // ★★★ 新增：轉向預判偏移量 (Steering Offset) ★★★20260126
+    // for (int j = 0; j < 50; ++j) {
+    //   int curr_idx = std::min(nearestIndex + steer_lookahead + j, (int)global_path_x.size() - 1);
+      
+    //   // 計算累計走過的物理距離
+    //   if (j > 0) {
+    //     int prev_idx = std::min(nearestIndex + steer_lookahead + j - 1, (int)global_path_x.size() - 1);
+    //     double dx = global_path_x[curr_idx] - global_path_x[prev_idx];
+    //     double dy = global_path_y[curr_idx] - global_path_y[prev_idx];
+    //     accumulated_dist += std::hypot(dx, dy); 
+    //   }
+      
+    //   // 當累計距離超過動態算出的 target_lookahead_dist_m，就停止加總
+    //   if (accumulated_dist > target_lookahead_dist_m) {
+    //     break;
+    //   }
+      
+    //   // 注意：這裡不取絕對值，因為方向盤有分左轉(+)右轉(-)
+    //   kappa_sum += computeKappaAt(curr_idx);
+    //   valid_points_count++;
+      
+    //   if (curr_idx == (int)global_path_x.size() - 1) {
+    //     break;
+    //   }
+    // }
 
-        // 既然點距 0.5m，偏移 3~4 點代表提早 1.5~2.0 公尺轉方向盤
-        // 這能抵消 max_delta_inc_ 很慢所造成的延遲
+    // // 防呆除以零
+    // kappa_avg_steering = kappa_sum / std::max(1.0, double(valid_points_count));
+    //=================================================================================
 
-
-        int steer_lookahead = 4; 
-
-        for (int j = 0; j < M; ++j) 
-        {
-            // 在取點時，加上 steer_lookahead
-            int ii = std::min(nearestIndex + steer_lookahead + j, (int)global_path_x.size() - 1);
-            kappa_sum += computeKappaAt(ii);
-        }
-        kappa_avg_steering = kappa_sum / double(M);
 
         // ==========================================
-        // 計算「速度規劃用」的曲率 (kappa_for_speed)
+        // 速度規劃用(曲率)
         // ==========================================
-        // 這裡我們要往後看遠一點 (Look Ahead)，專門為了減速
-        // int look_ahead_dist = 50; // 往後看 50 個點 (約 25公尺) 0.5m間隔
 
         double max_future_kappa = 0.0;
 
         // -------------根據速度動態調整 look ahead 距離(20250108)-------------
-        double min_lookahead = 5.0;  // 最少看 15 點 (7.5m) -> 低速時反應快 //15
-        double max_lookahead = 50.0;  // 最多看 50 點 (25m) -> 高速時安全 //50
-        double lookahead_gain =10.0;  // 速度每增加 1m/s，多看 10 點 10
+        double min_lookahead = 10.0;  // 最少看 15 點 (7.5m) -> 低速時反應快 //15  //p4 5
+        double max_lookahead = 30.0;  // 最多看 50 點 (25m) -> 高速時安全 //50
+        double lookahead_gain =10.0;  // 速度每增加 1m/s，多看 10 點 10 //p4 10
 
         // // 公式： 點數 = 最小 + (速度 * 增益)
         int look_ahead_dist = (int)(min_lookahead + std::abs(vt) * lookahead_gain);
@@ -675,8 +773,8 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         // 4. 曲率/CTE 基本降速
         // double curvature_threshold = 0.035;  //0.03 for 0.2m間隔 //0.02 for 0.5m間隔 //曲率門檻
         double v_allowed = v_max_ref;
-        double cte_threshold = 0.2;    // CTE 門檻0.2
-        double cte_scale     = 0.2;    // CTE 影響比例0.2
+        double cte_threshold = 0.3;    // CTE 門檻0.2
+        double cte_scale     = 0.3;    // CTE 影響比例0.2
 
 
         // if (kappa_for_speed > curvature_threshold) {
@@ -684,39 +782,18 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         //     v_allowed = v_max_ref - f * (v_max_ref - v_min_ref);
         // } 舊的
 
-        // ------------------------20261012---------------------------------
-
-        // double k_min = 0.015; // 曲率超過 0.015 開始減速
-        // double k_max = 0.06; // 曲率超過 0.06 降到最低速 
-        
-        // if (kappa_for_speed > k_min) {
-        //     // 讓 f 在 0.0 ~ 1.0 之間平滑變化
-        //     double f = (kappa_for_speed - k_min) / (k_max - k_min);
-            
-        //     // 限制 f 最大為 1.0
-        //     f = std::clamp(f, 0.0, 1.0);
-            
-        //     v_allowed = v_max_ref - (f * f) * (v_max_ref - v_min_ref);
-        // }
-        
-        // -----------------------------------------------------------------
-
-        // ==========================================
-        //  ★ 新增：自適應曲率門檻 (Adaptive Curvature Threshold) ★
-        // ==========================================
-        
         // 1. 取得當前車速 (絕對值)
         double current_v = std::abs(vt);
 
         // 2. 定義速度區間 (根據你的車輛極限設定)
-        double v_slow_bound = 1.2;   // 低速區間 (m/s) -> 在此速度以下視為低速
+        double v_slow_bound = 2.5;   // 低速區間 (m/s) -> 在此速度以下視為低速
         double v_fast_bound = 2.8;   // 高速區間 (m/s) -> 在此速度以上視為高速
 
         // 3. 定義門檻區間 (核心設定)
         // 低速時 (Loose)：容忍度高 (0.02)，忽略路徑抖動，利於出彎加速
         // 高速時 (Strict)：容忍度低 (0.005)，對彎道超敏感，確保入彎前提早煞車
-        double k_thresh_loose  = 0.02;   //0.02 
-        double k_thresh_strict = 0.005;  //0.005
+        double k_thresh_loose  = 0.01;   //0.02 
+        double k_thresh_strict = 0.005;  //0.005 ：））
 
         // 4. 計算速度比例 (0.0 ~ 1.0)
         double speed_ratio = (current_v - v_slow_bound) / (v_fast_bound - v_slow_bound);
@@ -745,10 +822,6 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         // (選用) 用於除錯，觀察門檻變化
         // ROS_INFO("V:%.2f, K_Thresh:%.3f, K_Speed:%.3f", current_v, k_min_dynamic, kappa_for_speed);
 
-
-
-
-
         if (cte_current > cte_threshold) {
             double fcte = std::min((cte_current - cte_threshold) / cte_threshold, 1.0);
             v_allowed = std::max(v_min_ref, v_allowed * (1.0 - cte_scale * fcte));
@@ -766,36 +839,8 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
             prev_v_ref = 0.0; 
         }
 
-        // if(vel_state != DWELL)
-        // {
-        //     // 6. 終點前 N 點緩降（加速版）
-        //     int N_end_slow = 8; //8
-        //     int remain_pts  = (int)global_path_x.size() - nearestIndex;
-        //     bool endpoint_phase = (remain_pts <= N_end_slow);
-        //     if (endpoint_phase) 
-        //     {
-        //         double ratio  = double(remain_pts) / double(N_end_slow);
-        //         double factor = std::pow(ratio, 3.0);
-        //         v_allowed *= std::clamp(factor, 0.0, 1.0);
-        //     }
-        //     // 7. EMA 平滑 + Δv 限幅 (方案A)
-        //     double raw_v = alpha * v_allowed + (1.0 - alpha) * prev_v_ref;
-        //     // 動態下限: CRUISE/RESUME 階段且非終點才用 v_min_ref，下限可降至 0
-        //     bool lower_phase = ((vel_state == CRUISE || vel_state == RESUME) && !endpoint_phase);
-        //     double lower = lower_phase ? v_min_ref : 0.0;
-        //     raw_v = std::clamp(raw_v, lower, v_max_ref);
-        //     double dv = std::clamp(raw_v - prev_v_ref, -max_delta_v, max_delta_v);
-        //     v_ref = prev_v_ref + dv;
-        //     if(v_ref < 0)
-        //     {
-        //         v_ref = 0;
-        //     }
-        //     //v_ref = 0.4; //debug
-        //     prev_v_ref = v_ref;
-        // }
-
         //6. 終點前 N 點緩降（加速版）
-        int N_end_slow = 10; //終點前20m降速 //40
+        int N_end_slow = 20; //終點前20m降速 //40
         int remain_pts  = (int)global_path_x.size() - nearestIndex;
         bool endpoint_phase = (remain_pts <= N_end_slow);
         if (endpoint_phase) 
@@ -811,66 +856,56 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         bool lower_phase = ((vel_state == CRUISE || vel_state == RESUME) && !endpoint_phase);
         double lower = lower_phase ? v_min_ref : 0.0;
         raw_v = std::clamp(raw_v, lower, v_max_ref);
-        double dv = std::clamp(raw_v - prev_v_ref, -max_delta_v, max_delta_v);
+        // double dv = std::clamp(raw_v - prev_v_ref, -max_delta_v, max_delta_v);
+
+        //20260302: 進一步區分加速與減速的限制，讓加速更平順但減速更果斷
+        double max_accel = 0.02; // 限制加速（回正時）
+        double max_decel = 0.04; // 允許較快的減速（入彎或遇到障礙時）
+        double dv = std::clamp(raw_v - prev_v_ref, -max_decel, max_accel);
+
         v_ref = prev_v_ref + dv;
         //v_ref = 0.4; //debug
         prev_v_ref = v_ref;
-
-
-
-        
-
-
-        // 一旦通過 turn_index 就鎖存進入「反車模式」
-        // if (!reversed_mode && idx >= turnIdx) 
-        // {
-        //     reversed_mode = true;
-        // }
-
-        // if (!reversed_mode && py < global_path_y[turnIdx]) 
-        // {
-        //     reversed_mode = true;
-        // }
         
         static bool enddd = false;
         // 進入反車模式後，參考速度一律為負：保持規劃出的速度幅度，僅改符號
-        if (reversed_mode ) 
-        {
-            double mag;
+        // if (reversed_mode ) 
+        // {
+        //     double mag;
             
 
-            if(!enddd)
-            {
-                mag = std::max(std::abs(v_ref), v_min_ref); // 至少保有最小速度幅度
-            }
+        //     if(!enddd)
+        //     {
+        //         mag = std::max(std::abs(v_ref), v_min_ref); // 至少保有最小速度幅度
+        //     }
             
-            mag = std::min(mag, v_max_ref);                    // 不超過上限
-            // 1. 直接取用 v_ref 的 "幅度" (它已經包含了所有動態降速邏輯)
+        //     mag = std::min(mag, v_max_ref);                    // 不超過上限
+        //     // 1. 直接取用 v_ref 的 "幅度" (它已經包含了所有動態降速邏輯)
 
-            // --- 這是您要求的「終點前 5 點減速」邏輯 ---
-            const int DECEL_POINTS_END = 4; // 在最後 5 個點減速
-            const double V_AT_END = 0.0;    // 減速到 0
+        //     // --- 這是您要求的「終點前 5 點減速」邏輯 ---
+        //     const int DECEL_POINTS_END = 4; // 在最後 5 個點減速
+        //     const double V_AT_END = 0.0;    // 減速到 0
 
-            // 3. 計算剩餘點數 (使用第 860 行的變數)
-            int remain_pts = (int)global_path_x.size() - nearestIndex;
+        //     // 3. 計算剩餘點數 (使用第 860 行的變數)
+        //     int remain_pts = (int)global_path_x.size() - nearestIndex;
 
-            // 4. 如果進入了您指定的 5 點減速區
-            if (remain_pts <= DECEL_POINTS_END && remain_pts >= 0)
-            {
-                enddd = true;
-                // 5. 計算減速比例 (從 1.0 線性下降到 0.0)
-                //double scale = std::cbrt(static_cast<double>(remain_pts) / DECEL_POINTS_END);
-                double scale = std::pow(static_cast<double>(remain_pts) / DECEL_POINTS_END, 0.25);                
-                // 6. 線性插值計算新速度
-                //    (mag 是減速前的速度, V_AT_END 是 0)
-                double target_mag = V_AT_END + scale * (mag - V_AT_END);
+        //     // 4. 如果進入了您指定的 5 點減速區
+        //     if (remain_pts <= DECEL_POINTS_END && remain_pts >= 0)
+        //     {
+        //         enddd = true;
+        //         // 5. 計算減速比例 (從 1.0 線性下降到 0.0)
+        //         //double scale = std::cbrt(static_cast<double>(remain_pts) / DECEL_POINTS_END);
+        //         double scale = std::pow(static_cast<double>(remain_pts) / DECEL_POINTS_END, 0.25);                
+        //         // 6. 線性插值計算新速度
+        //         //    (mag 是減速前的速度, V_AT_END 是 0)
+        //         double target_mag = V_AT_END + scale * (mag - V_AT_END);
                 
-                mag = target_mag; // 覆蓋掉 'mag'
-            }
+        //         mag = target_mag; // 覆蓋掉 'mag'
+        //     }
 
-            v_ref = -mag;
-            prev_v_ref = v_ref; // 與後續 a_ref 計算保持一致
-        }
+        //     v_ref = -mag;
+        //     prev_v_ref = v_ref; // 與後續 a_ref 計算保持一致
+        // }
         
         ROS_INFO("nearest=%d  turn=%d  remain=%d  state=%d", 
             nearestIndex, turn_index_, turn_index_ - nearestIndex, vel_state);
@@ -879,8 +914,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         //double delta_d = std::atan(kappa_avg_steering * L);
         double sign_v  = (v_ref >= 0.0) ? 1.0 : -1.0;
         double delta_d = sign_v * std::atan(kappa_avg_steering * L);
-
-
+        
         double ref_theta = refHeading + (reversed_mode ? M_PI : 0.0);
 
         Eigen::Vector4d s(px, py, theta, v_body);
@@ -900,7 +934,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
 
         double u_a = u[0];
 
-        double u_delta = anglarRegularization(base_odom,u[1]);
+        u_delta = anglarRegularization(base_odom,u[1]);
 
         
         if(kappa_avg_steering <= 0.0002 )
@@ -931,6 +965,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         
         cmd_to_matlab.data.emplace_back(u_a);
         cmd_to_matlab.data.emplace_back(u_delta);
+        cmd_to_matlab.data.emplace_back(v_ref);
         cte_test.data.emplace_back(cte);
 
 
@@ -950,25 +985,63 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         caculate_mpc_finish = ros::Time::now().toSec();
         //std::cout<<" 控制週期 = "<< caculate_mpc_start - caculate_mpc_finish<<std::endl;
 
+        //===========================csv不會覆蓋上一筆的數據========================
+        // std::ofstream ofs(filename_, std::ios::app);
+        // if (!ofs.is_open()) {
+        // ROS_ERROR("Failed to open file: %s", filename_.c_str());
+        // return;
+        // }
+        // //std::cout<<"kappa2 = \n"<< kappa <<std::endl;
+        // static bool header_written = false;
+        // if (!header_written) {
+        // ofs << "u_a,v_real,v_ref,u_delta,delta_d,px,py,theta1,cte,cte_real,epsi,vx,vy,kappa,beta" << std::endl;
+        // header_written = true;
+        // }
 
-        std::ofstream ofs(filename_, std::ios::app);
-        if (!ofs.is_open()) {
+        // ofs << std::fixed << std::setprecision(4)
+        // << u_a << ","<< v_body << "," << v_ref << "," << u_delta << ","<< delta_d << "," << px << "," << py << ","
+        // << theta1 << "," << cte << "," << cte_real << ","<< epsi << "," << vx << ","
+        // << vy <<","<<kappa_avg_steering<< "," << beta_1<<std::endl;
+
+        // ofs.close(); // 確保每次操作後關閉文件
+
+        //=====================================================================
+
+
+        //======================csv會覆蓋上一筆的數據================================
+        static bool first_write = true;
+    std::ofstream ofs;
+
+    if (first_write) {
+      // 程式剛啟動的第一次寫入，使用 std::ios::trunc 模式（清空並覆蓋舊檔案）
+      ofs.open(filename_, std::ios::out | std::ios::trunc);
+      if (!ofs.is_open()) {
         ROS_ERROR("Failed to open file: %s", filename_.c_str());
         return;
-        }
-        //std::cout<<"kappa2 = \n"<< kappa <<std::endl;
-        static bool header_written = false;
-        if (!header_written) {
-        ofs << "u_a,v_real,v_ref,u_delta,delta_d,px,py,theta1,cte,cte_real,epsi,vx,vy,kappa,beta" << std::endl;
-        header_written = true;
-        }
+      }
+      // 寫入標題行
+      ofs << "u_a,v_real,v_ref,u_delta,delta_d,px,py,theta1,cte,cte_real,epsi,"
+             "vx,vy,kappa,beta,steer\n";
+      first_write = false;
+    } else {
+      // 之後的寫入，使用 std::ios::app 模式（接續寫在同一份檔案的尾端）
+      ofs.open(filename_, std::ios::app);
+      if (!ofs.is_open()) {
+        ROS_ERROR("Failed to open file: %s", filename_.c_str());
+        return;
+      }
+    }
 
-        ofs << std::fixed << std::setprecision(4)
-        << u_a << ","<< v_body << "," << v_ref << "," << u_delta << ","<< delta_d << "," << px << "," << py << ","
-        << theta1 << "," << cte << "," << cte_real << ","<< epsi << "," << vx << ","
-        << vy <<","<<kappa_avg_steering<< "," << beta_1<<std::endl;
+    // 寫入當前週期的數據
+    ofs << std::fixed << std::setprecision(4) << u_a << "," << v_body << ","
+        << v_ref << "," << u_delta << "," << delta_d << "," << px << "," << py
+        << "," << theta1 << "," << cte << "," << cte_real << "," << epsi << ","
+        << vx << "," << vy << "," << kappa_avg_steering << "," << beta_1<< ","<< steer_real
+        << std::endl;
 
-        ofs.close(); // 確保每次操作後關閉文件
+    ofs.close(); // 確保每次操作後關閉文件
+    //=====================================================================
+        
     }    
 }
 

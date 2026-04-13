@@ -1,4 +1,4 @@
-prefix=/home/gihsiu0530/mpc/devel
+prefix=/home/cyc/campus_ws/devel
 
 Name: mpcbitch
 Description: Description of mpcbitch

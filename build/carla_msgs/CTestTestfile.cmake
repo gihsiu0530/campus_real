@@ -1,6 +1,6 @@
 # CMake generated Testfile for 
-# Source directory: /home/gihsiu0530/mpc/src/carla_msgs
-# Build directory: /home/gihsiu0530/mpc/build/carla_msgs
+# Source directory: /home/cyc/campus_ws/src/carla_msgs
+# Build directory: /home/cyc/campus_ws/build/carla_msgs
 # 
 # This file includes the relevant testing commands required for 
 # testing this directory and lists subdirectories to be tested as well.

@@ -219,7 +219,7 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-include_directories(/home/gihsiu0530/mpc/src/mpcbitch/include)
+include_directories(/home/cyc/campus_ws/src/mpcbitch/include)
 add_executable(mpc_new src/mpc_new.cpp )
 target_link_libraries(mpc_new ${catkin_LIBRARIES} osqp OsqpEigen)
 

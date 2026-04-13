@@ -1,8 +1,8 @@
-# Install script for directory: /home/gihsiu0530/mpc/src/mpc_4state
+# Install script for directory: /home/cyc/campus_ws/src/mpc_4state
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
-  set(CMAKE_INSTALL_PREFIX "/home/gihsiu0530/mpc/install")
+  set(CMAKE_INSTALL_PREFIX "/home/cyc/campus_ws/install")
 endif()
 string(REGEX REPLACE "/$" "" CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}")
 
@@ -37,18 +37,23 @@ if(NOT DEFINED CMAKE_CROSSCOMPILING)
   set(CMAKE_CROSSCOMPILING "FALSE")
 endif()
 
-if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/pkgconfig" TYPE FILE FILES "/home/gihsiu0530/mpc/build/mpc_4state/catkin_generated/installspace/mpc_4state.pc")
+# Set default install directory permissions.
+if(NOT DEFINED CMAKE_OBJDUMP)
+  set(CMAKE_OBJDUMP "/usr/bin/objdump")
 endif()
 
-if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/lib/pkgconfig" TYPE FILE FILES "/home/cyc/campus_ws/build/mpc_4state/catkin_generated/installspace/mpc_4state.pc")
+endif()
+
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
   file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/mpc_4state/cmake" TYPE FILE FILES
-    "/home/gihsiu0530/mpc/build/mpc_4state/catkin_generated/installspace/mpc_4stateConfig.cmake"
-    "/home/gihsiu0530/mpc/build/mpc_4state/catkin_generated/installspace/mpc_4stateConfig-version.cmake"
+    "/home/cyc/campus_ws/build/mpc_4state/catkin_generated/installspace/mpc_4stateConfig.cmake"
+    "/home/cyc/campus_ws/build/mpc_4state/catkin_generated/installspace/mpc_4stateConfig-version.cmake"
     )
 endif()
 
-if("x${CMAKE_INSTALL_COMPONENT}x" STREQUAL "xUnspecifiedx" OR NOT CMAKE_INSTALL_COMPONENT)
-  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/mpc_4state" TYPE FILE FILES "/home/gihsiu0530/mpc/src/mpc_4state/package.xml")
+if(CMAKE_INSTALL_COMPONENT STREQUAL "Unspecified" OR NOT CMAKE_INSTALL_COMPONENT)
+  file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}/share/mpc_4state" TYPE FILE FILES "/home/cyc/campus_ws/src/mpc_4state/package.xml")
 endif()
 

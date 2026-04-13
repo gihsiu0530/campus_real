@@ -216,20 +216,12 @@ struct Printer< ::carla_msgs::CarlaStatus_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaStatus_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "frame: ";
     Printer<uint64_t>::stream(s, indent + "  ", v.frame);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "fixed_delta_seconds: ";
     Printer<float>::stream(s, indent + "  ", v.fixed_delta_seconds);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "synchronous_mode: ";
     Printer<uint8_t>::stream(s, indent + "  ", v.synchronous_mode);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "synchronous_mode_running: ";
     Printer<uint8_t>::stream(s, indent + "  ", v.synchronous_mode_running);
   }

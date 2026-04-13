@@ -208,21 +208,14 @@ struct Printer< ::carla_msgs::CarlaActorList_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaActorList_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
-    s << indent << "actors: ";
-    if (v.actors.empty() || false)
-      s << "[";
+    s << indent << "actors[]" << std::endl;
     for (size_t i = 0; i < v.actors.size(); ++i)
     {
-      if (false && i > 0)
-        s << ", ";
-      else if (!false)
-        s << std::endl << indent << "  -";
-      Printer< ::carla_msgs::CarlaActorInfo_<ContainerAllocator> >::stream(s, false ? std::string() : indent + "    ", v.actors[i]);
+      s << indent << "  actors[" << i << "]: ";
+      s << std::endl;
+      s << indent;
+      Printer< ::carla_msgs::CarlaActorInfo_<ContainerAllocator> >::stream(s, indent + "    ", v.actors[i]);
     }
-    if (v.actors.empty() || false)
-      s << "]";
   }
 };
 

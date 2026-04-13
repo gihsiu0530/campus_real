@@ -281,36 +281,21 @@ struct Printer< ::carla_msgs::CarlaEgoVehicleControl_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaEgoVehicleControl_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "header: ";
+    s << std::endl;
     Printer< ::std_msgs::Header_<ContainerAllocator> >::stream(s, indent + "  ", v.header);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "throttle: ";
     Printer<float>::stream(s, indent + "  ", v.throttle);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "steer: ";
     Printer<float>::stream(s, indent + "  ", v.steer);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "brake: ";
     Printer<float>::stream(s, indent + "  ", v.brake);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "hand_brake: ";
     Printer<uint8_t>::stream(s, indent + "  ", v.hand_brake);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "reverse: ";
     Printer<uint8_t>::stream(s, indent + "  ", v.reverse);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "gear: ";
     Printer<int32_t>::stream(s, indent + "  ", v.gear);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "manual_gear_shift: ";
     Printer<uint8_t>::stream(s, indent + "  ", v.manual_gear_shift);
   }

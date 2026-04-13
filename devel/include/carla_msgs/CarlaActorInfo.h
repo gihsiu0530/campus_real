@@ -216,20 +216,12 @@ struct Printer< ::carla_msgs::CarlaActorInfo_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaActorInfo_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "id: ";
     Printer<uint32_t>::stream(s, indent + "  ", v.id);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "parent_id: ";
     Printer<uint32_t>::stream(s, indent + "  ", v.parent_id);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "type: ";
     Printer<std::basic_string<char, std::char_traits<char>, typename std::allocator_traits<ContainerAllocator>::template rebind_alloc<char>>>::stream(s, indent + "  ", v.type);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "rolename: ";
     Printer<std::basic_string<char, std::char_traits<char>, typename std::allocator_traits<ContainerAllocator>::template rebind_alloc<char>>>::stream(s, indent + "  ", v.rolename);
   }

@@ -308,25 +308,19 @@ struct Printer< ::carla_msgs::CarlaEgoVehicleStatus_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaEgoVehicleStatus_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "header: ";
+    s << std::endl;
     Printer< ::std_msgs::Header_<ContainerAllocator> >::stream(s, indent + "  ", v.header);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "velocity: ";
     Printer<float>::stream(s, indent + "  ", v.velocity);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "acceleration: ";
+    s << std::endl;
     Printer< ::geometry_msgs::Accel_<ContainerAllocator> >::stream(s, indent + "  ", v.acceleration);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "orientation: ";
+    s << std::endl;
     Printer< ::geometry_msgs::Quaternion_<ContainerAllocator> >::stream(s, indent + "  ", v.orientation);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "control: ";
+    s << std::endl;
     Printer< ::carla_msgs::CarlaEgoVehicleControl_<ContainerAllocator> >::stream(s, indent + "  ", v.control);
   }
 };

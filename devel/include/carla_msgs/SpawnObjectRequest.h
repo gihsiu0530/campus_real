@@ -260,39 +260,23 @@ struct Printer< ::carla_msgs::SpawnObjectRequest_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::SpawnObjectRequest_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "type: ";
     Printer<std::basic_string<char, std::char_traits<char>, typename std::allocator_traits<ContainerAllocator>::template rebind_alloc<char>>>::stream(s, indent + "  ", v.type);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "id: ";
     Printer<std::basic_string<char, std::char_traits<char>, typename std::allocator_traits<ContainerAllocator>::template rebind_alloc<char>>>::stream(s, indent + "  ", v.id);
-    if (true || !indent.empty())
-      s << std::endl;
-    s << indent << "attributes: ";
-    if (v.attributes.empty() || false)
-      s << "[";
+    s << indent << "attributes[]" << std::endl;
     for (size_t i = 0; i < v.attributes.size(); ++i)
     {
-      if (false && i > 0)
-        s << ", ";
-      else if (!false)
-        s << std::endl << indent << "  -";
-      Printer< ::diagnostic_msgs::KeyValue_<ContainerAllocator> >::stream(s, false ? std::string() : indent + "    ", v.attributes[i]);
+      s << indent << "  attributes[" << i << "]: ";
+      s << std::endl;
+      s << indent;
+      Printer< ::diagnostic_msgs::KeyValue_<ContainerAllocator> >::stream(s, indent + "    ", v.attributes[i]);
     }
-    if (v.attributes.empty() || false)
-      s << "]";
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "transform: ";
+    s << std::endl;
     Printer< ::geometry_msgs::Pose_<ContainerAllocator> >::stream(s, indent + "  ", v.transform);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "attach_to: ";
     Printer<uint32_t>::stream(s, indent + "  ", v.attach_to);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "random_pose: ";
     Printer<uint8_t>::stream(s, indent + "  ", v.random_pose);
   }

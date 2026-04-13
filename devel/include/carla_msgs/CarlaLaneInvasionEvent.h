@@ -245,25 +245,15 @@ struct Printer< ::carla_msgs::CarlaLaneInvasionEvent_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaLaneInvasionEvent_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "header: ";
+    s << std::endl;
     Printer< ::std_msgs::Header_<ContainerAllocator> >::stream(s, indent + "  ", v.header);
-    if (true || !indent.empty())
-      s << std::endl;
-    s << indent << "crossed_lane_markings: ";
-    if (v.crossed_lane_markings.empty() || true)
-      s << "[";
+    s << indent << "crossed_lane_markings[]" << std::endl;
     for (size_t i = 0; i < v.crossed_lane_markings.size(); ++i)
     {
-      if (true && i > 0)
-        s << ", ";
-      else if (!true)
-        s << std::endl << indent << "  -";
-      Printer<int32_t>::stream(s, true ? std::string() : indent + "    ", v.crossed_lane_markings[i]);
+      s << indent << "  crossed_lane_markings[" << i << "]: ";
+      Printer<int32_t>::stream(s, indent + "  ", v.crossed_lane_markings[i]);
     }
-    if (v.crossed_lane_markings.empty() || true)
-      s << "]";
   }
 };
 

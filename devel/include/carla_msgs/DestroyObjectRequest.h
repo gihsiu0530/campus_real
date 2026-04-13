@@ -191,8 +191,6 @@ struct Printer< ::carla_msgs::DestroyObjectRequest_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::DestroyObjectRequest_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "id: ";
     Printer<int32_t>::stream(s, indent + "  ", v.id);
   }

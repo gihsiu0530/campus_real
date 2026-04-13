@@ -69,7 +69,8 @@ int main (int argc, char** argv)
     // std::ifstream inFile("/home/gihsiu0530/path_mpc_simulate/smoothed/Final_Path_Selective_Smooth.csv",std::ios::in); 
     // std::ifstream inFile("/home/gihsiu0530/path_mpc_simulate/smoothed/Final_Path_Selective_Smooth_high_curvature2.csv",std::ios::in); 
     // std::ifstream inFile("/home/gihsiu0530/path_mpc_simulate/smoothed/20260123.csv",std::ios::in); 
-    std::ifstream inFile("/home/gihsiu0530/path_mpc_simulate/smoothed/20260123v2.csv",std::ios::in); 
+    std::ifstream inFile("/home/cyc/campus_ws/src/mpc_4state/src/transformed_points.csv",std::ios::in); 
+    // std::ifstream inFile("/home/cyc/campus_ws/path/gym_clockwise.csv",std::ios::in); 
 
     if(inFile.fail()){
         ROS_ERROR("Failed to read waypoint.csv ");

@@ -1,0 +1,7 @@
+<launch>
+    <node pkg="mpc_4state" type="global_path" name="global_path" output="screen" />
+    
+    <node pkg="mpcbitch" type="mpc_back_test" name="mpc_back_test" output="screen" />
+
+    <node pkg="mpcbitch" type="plot_cte.py" name="cte_plotter_node" output="screen" />
+</launch>

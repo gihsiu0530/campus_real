@@ -214,13 +214,11 @@ struct Printer< ::carla_msgs::CarlaBoundingBox_<ContainerAllocator> >
 {
   template<typename Stream> static void stream(Stream& s, const std::string& indent, const ::carla_msgs::CarlaBoundingBox_<ContainerAllocator>& v)
   {
-    if (false || !indent.empty())
-      s << std::endl;
     s << indent << "center: ";
+    s << std::endl;
     Printer< ::geometry_msgs::Vector3_<ContainerAllocator> >::stream(s, indent + "  ", v.center);
-    if (true || !indent.empty())
-      s << std::endl;
     s << indent << "size: ";
+    s << std::endl;
     Printer< ::geometry_msgs::Vector3_<ContainerAllocator> >::stream(s, indent + "  ", v.size);
   }
 };

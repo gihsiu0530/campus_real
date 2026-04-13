@@ -1,7 +1,8 @@
 file(REMOVE_RECURSE
-  "/home/gihsiu0530/mpc/devel/lib/mpc_4state/mpc_bicycle"
-  "/home/gihsiu0530/mpc/devel/lib/mpc_4state/mpc_bicycle.pdb"
+  "/home/cyc/campus_ws/devel/lib/mpc_4state/mpc_bicycle"
+  "/home/cyc/campus_ws/devel/lib/mpc_4state/mpc_bicycle.pdb"
   "CMakeFiles/mpc_bicycle.dir/src/mpc_bicycle.cpp.o"
+  "CMakeFiles/mpc_bicycle.dir/src/mpc_bicycle.cpp.o.d"
 )
 
 # Per-language clean rules from dependency scanning.

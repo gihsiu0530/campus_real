@@ -1,4 +1,4 @@
-prefix=/home/gihsiu0530/mpc/install
+prefix=/home/cyc/campus_ws/install
 
 Name: mpc_4state
 Description: Description of mpc_4state

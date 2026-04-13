@@ -209,7 +209,7 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-include_directories(/home/gihsiu0530/mpc/src/mpc_4state/include)
+include_directories(/home/cyc/campus_ws/src/mpc_4state/include)
 add_executable(mpc_bicycle src/mpc_bicycle.cpp )
 target_link_libraries(mpc_bicycle ${catkin_LIBRARIES} osqp OsqpEigen)
 add_executable(global_path src/global_path.cpp )
