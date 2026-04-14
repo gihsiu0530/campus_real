@@ -152,7 +152,7 @@ void MPCPlanner_path::initialize()
         //m_ = 2;                    //控制時域*/
 
         p_ = 45;//40   //30             //預測時間域
-        m_ = 10;//15       //8             //控制時域*/
+        m_ = 15;//15       //8             //控制時域*/
 
 
         //權重矩陣：用於懲罰在進行路徑追蹤控制時的狀態誤差[x,y,theta,v] 
@@ -536,7 +536,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         // 這裡我們直接用投影點與 refHeading 作為目標（你也可以根據 d 與 epsi 設計誤差向量）
         // 參數設定
         // ====== Velocity Planning with Mirror-Line Pause Logic ======
-        static double alpha               = 0.15;   // EMA 平滑係數
+        static double alpha               = 0.1;   // EMA 平滑係數
         static double prev_v_ref          = vt;     // 上一時刻輸出速度
         static double last_v_ref          = vt;     // 計算 a_ref 用
 
