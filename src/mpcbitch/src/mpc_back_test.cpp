@@ -19,6 +19,8 @@
 #include <carla_msgs/CarlaEgoVehicleControl.h>
 #include <nav_msgs/Path.h>
 #include <geometry_msgs/PointStamped.h>
+#include <algorithm>
+#include <cmath>
 
 
 std::string filename_;
@@ -119,7 +121,10 @@ void MPCPlanner_path::initialize()
     u_prev = Eigen::Vector2d(min_v_, 0);
 
     private_nh_.param<std::string>("save_filename", filename_, "/home/cyc/campus_ws/mpcdata/real.csv");
+    private_nh_.param("use_state_projection", use_state_projection_, true);   //false 關閉
+    private_nh_.param("state_projection_delay", state_projection_delay_, 0.4);
     ROS_INFO("Data will be saved to: %s", filename_.c_str());
+    ROS_INFO("State projection: %s, delay=%.3f sec", use_state_projection_ ? "on" : "off", state_projection_delay_);
 
     ROS_INFO("MPC Planner initialized START");
     if(!initialize_ )
@@ -289,6 +294,34 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
     double vt = v_body;
     
     theta = regularizeAngle(theta1);
+
+    // Compensate actuator/sensing delay by projecting state to the future.
+    double px_proj = px;
+    double py_proj = py;
+    double theta_proj = theta;
+    const double delay_s = std::max(0.0, state_projection_delay_);
+
+    if (use_state_projection_ && delay_s > 1e-4)
+    {
+        double delta_proj = std::isfinite(steer_real) ? steer_real : u_delta;
+        delta_proj = std::clamp(delta_proj, -max_delta_, max_delta_);
+        double omega_proj = v_body * std::tan(delta_proj) / L;
+
+        if (std::fabs(omega_proj) < 1e-6)
+        {
+            px_proj += v_body * std::cos(theta_proj) * delay_s;
+            py_proj += v_body * std::sin(theta_proj) * delay_s;
+        }
+        else
+        {
+            double theta_next = theta_proj + omega_proj * delay_s;
+            px_proj += (v_body / omega_proj) * (std::sin(theta_next) - std::sin(theta_proj));
+            py_proj += -(v_body / omega_proj) * (std::cos(theta_next) - std::cos(theta_proj));
+            theta_proj = theta_next;
+        }
+
+        theta_proj = regularizeAngle(theta_proj);
+    }
     
     next_px = px + vt*cos(theta)*d_t_;
     next_py = py + vt*sin(theta)*d_t_;
@@ -305,6 +338,9 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
     std::cout<<"car_vel_x = "<<vx<<std::endl;
     std::cout<<"car_vel_y = "<< vy<<std::endl;
     std::cout<<" delta = "<< delta  <<std::endl;
+    std::cout<<" projected_x = "<< px_proj <<std::endl;
+    std::cout<<" projected_y = "<< py_proj <<std::endl;
+    std::cout<<" projected_theta = "<< theta_proj <<std::endl;
 
 
     double nearest_distance = 999;                                       // declare the double variable "nearest_distance" is 100
@@ -341,8 +377,8 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         int    candidate_id     = (int)begin;
 
         for (size_t i = begin; i < end; ++i) {
-            double dx = global_path_x[i] - px;
-            double dy = global_path_y[i] - py;
+            double dx = global_path_x[i] - px_proj;
+            double dy = global_path_y[i] - py_proj;
             double dist = std::hypot(dx, dy);
             if (dist < nearest_distance) {
                 nearest_distance = dist;
@@ -399,7 +435,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         //---------NEW calculate cte & epsi START---------
         
         // 1. 車輛全局位置
-        Eigen::Vector2d vehiclePos(px, py);
+        Eigen::Vector2d vehiclePos(px_proj, py_proj);
 
         // 2. 在全局路徑中找出車輛位置的投影點（用相鄰點線段近似參考曲線）
         double minDistance = 1e6;
@@ -479,7 +515,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         cte_real = cte;
 
         // ===== 反車鎖存與負速參考 =====
-        double epsi = regularizeAngle(theta - refHeading_adj);
+        double epsi = regularizeAngle(theta_proj - refHeading_adj);
         if(abs(epsi) > 3)
         {
             epsi = 0;
@@ -917,7 +953,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
         
         double ref_theta = refHeading + (reversed_mode ? M_PI : 0.0);
 
-        Eigen::Vector4d s(px, py, theta, v_body);
+        Eigen::Vector4d s(px_proj, py_proj, theta_proj, v_body);
         //Eigen::Vector4d s_d(projection.x(), projection.y(), ref_theta, v_ref);
         Eigen::Vector4d s_d(projection.x(), projection.y(), refHeading_adj, v_ref);
         Eigen::Vector2d p0(global_path_x[nearestIndex-1], global_path_y[nearestIndex-1]);
