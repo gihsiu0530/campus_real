@@ -122,7 +122,9 @@ void MPCPlanner_path::initialize()
 
     private_nh_.param<std::string>("save_filename", filename_, "/home/cyc/campus_ws/mpcdata/real.csv");
     private_nh_.param("use_state_projection", use_state_projection_, true);   //false 關閉
-    private_nh_.param("state_projection_delay", state_projection_delay_, 0.4);
+    private_nh_.param("state_projection_delay", state_projection_delay_, 0.5);
+
+
     ROS_INFO("Data will be saved to: %s", filename_.c_str());
     ROS_INFO("State projection: %s, delay=%.3f sec", use_state_projection_ ? "on" : "off", state_projection_delay_);
 
@@ -278,7 +280,9 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
     px = msg->pose.pose.position.x;
     py = msg->pose.pose.position.y;
     
+    
     theta1 = tf2::getYaw(msg->pose.pose.orientation);
+    theta1 = theta1 - M_PI/3;
     vx = msg->twist.twist.linear.x;
     vy = msg->twist.twist.linear.y;
     
