@@ -165,6 +165,9 @@
             nav_msgs::Odometry       latest_odom_;
             bool                     odom_received_ = false;
 
+            bool use_state_projection_ = true;
+            double state_projection_delay_ = 0.4;  // seconds
+
             double min_v_forward_ = 2;   // 前進最小速度 0.6
             double max_v_forward_ = 4;   // 前進最大速度 4
             double min_v_reverse_ = 0.22;   // 倒退最小速度（較慢）
