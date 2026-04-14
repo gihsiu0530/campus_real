@@ -1,8 +1,8 @@
 %% 1. 讀取資料
 % 請確保路徑正確
-real_data = readtable(['/home/cyc/campus_ws/mpcdata/real2.csv']);
-back_data = readtable('/home/cyc/campus_ws/src/mpc_4state/src/transformed_points.csv');
-sim_data  = readtable(['/home/cyc/campus_ws/mpcdata/simulation.csv']);
+real_data = readtable(['/home/cyc/campus_ws/mpcdata/real_delay0.4.csv']);
+back_data = readtable('/home/cyc/campus_ws/src/mpc_4state/src/0414.csv');
+sim_data  = readtable(['/home/cyc/campus_ws/mpcdata/real.csv']);
 
 % 提取座標
 pxx = real_data.px;
