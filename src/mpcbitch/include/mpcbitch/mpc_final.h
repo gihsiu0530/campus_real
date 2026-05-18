@@ -93,6 +93,21 @@
         //Eigen::MatrixXd Q_;          //狀態誤差權重矩陣
 
         private:
+            struct SlowZone
+            {
+                double x = 0.0;
+                double y = 0.0;
+                double target_speed = 0.0;
+                double radius = 1.0;
+                double approach_distance = 3.0;
+                double leave_distance = 1.0;
+                int path_index = -1;
+                double path_s = 0.0;
+            };
+
+            void loadSlowZonesFromParams();
+            void updateSlowZonePathIndices();
+            double applySlowZoneSpeedLimit(int nearest_index, double px, double py, double v_allowed) const;
             
             //lookhead
             double lookahead_time_ = 1.5;     //前視時間
@@ -115,6 +130,12 @@
 
             std::vector<double> global_path_x;
             std::vector<double> global_path_y;
+            std::vector<double> global_path_s_;
+            std::vector<SlowZone> slow_zones_;
+            bool slow_zones_enabled_ = true;
+            double slow_zone_default_radius_ = 1.0;
+            double slow_zone_default_approach_distance_ = 3.0;
+            double slow_zone_default_leave_distance_ = 1.0;
 
 
             Eigen::Vector3d goal_rpy;
@@ -168,8 +189,8 @@
             bool use_state_projection_ = true;
             double state_projection_delay_ = 0.4;  // seconds
 
-            double min_v_forward_ = 2;   // 前進最小速度 0.6
-            double max_v_forward_ = 4;   // 前進最大速度 4
+            double min_v_forward_ = 1.5;   // 前進最小速度 0.6
+            double max_v_forward_ = 2.5;   // 前進最大速度 4
             double min_v_reverse_ = 0.22;   // 倒退最小速度（較慢）
             double max_v_reverse_ = 0.40;   // 倒退最大速度（較小）
              

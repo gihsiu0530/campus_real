@@ -1,7 +1,23 @@
 <launch>
     <!-- <node pkg="mpc_4state" type="global_path" name="global_path" output="screen" /> -->
     
-    <node pkg="mpcbitch" type="mpc_back_test" name="mpc_back_test" output="screen" />
+    <node pkg="mpcbitch" type="mpc_back_test" name="mpc_back_test" output="screen">
+        
+        <!-- Slow zone example:
+        x/y are map coordinates. target_speed is the speed near that point (m/s).
+        approach_distance starts limiting speed before the point.
+        leave_distance keeps the low speed briefly after passing the point. -->
+        <rosparam param="slow_zones">
+          - {x: 299.51, y: 100.23, target_speed: 0.4, radius: 1.2, approach_distance: 5.0, leave_distance: 2.0}
+          - {x: 68.64, y:  -60.58, target_speed: 0.4, radius: 1.2, approach_distance: 5.0, leave_distance: 2.0}
+          - {x: 130.01, y:  155.76, target_speed: 0.4, radius: 1.2, approach_distance: 5.0, leave_distance: 2.0}
+        </rosparam>
+       
+        <param name="slow_zones_enabled" value="true" />
+        <param name="slow_zone_default_radius" value="1.0" />
+        <param name="slow_zone_default_approach_distance" value="3.0" />
+        <param name="slow_zone_default_leave_distance" value="1.0" />
+    </node>
 
     <node pkg="mpcbitch" type="plot_cte.py" name="cte_plotter_node" output="screen" />
 </launch>

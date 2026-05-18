@@ -55,7 +55,7 @@ max_eps_deg   = max(abs(epsi_deg));   % 最大絕對角誤差（度）
 figure;
 plot(pxx, pyy, 'b-', 'LineWidth', 1.5); hold on;
 plot(x_back, y_back, 'r--', 'LineWidth', 1.5);
-legend('Real (pxx,pyy)', 'Back Path (x,y)');
+legend('Real (pxx,pyy)', 'Path (x,y)');
 xlabel('X'); ylabel('Y');
 title('路徑比較');
 grid on;

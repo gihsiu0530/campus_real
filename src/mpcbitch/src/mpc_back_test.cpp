@@ -21,6 +21,8 @@
 #include <geometry_msgs/PointStamped.h>
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <xmlrpcpp/XmlRpcValue.h>
 
 
 std::string filename_;
@@ -50,6 +52,175 @@ double MPCPlanner_path::regularizeAngle(double angle)
     else if (a > M_PI)
         a -= 2.0 * M_PI;
     return a;
+}
+
+namespace
+{
+bool readXmlRpcDouble(XmlRpc::XmlRpcValue& value, double& out)
+{
+    if (value.getType() == XmlRpc::XmlRpcValue::TypeDouble)
+    {
+        out = static_cast<double>(value);
+        return true;
+    }
+    if (value.getType() == XmlRpc::XmlRpcValue::TypeInt)
+    {
+        out = static_cast<int>(value);
+        return true;
+    }
+    return false;
+}
+
+bool readXmlRpcMemberDouble(XmlRpc::XmlRpcValue& value, const std::string& key, double& out)
+{
+    if (value.getType() != XmlRpc::XmlRpcValue::TypeStruct || !value.hasMember(key))
+    {
+        return false;
+    }
+    return readXmlRpcDouble(value[key], out);
+}
+}  // namespace
+
+void MPCPlanner_path::loadSlowZonesFromParams()
+{
+    private_nh_.param("slow_zones_enabled", slow_zones_enabled_, true);
+    private_nh_.param("slow_zone_default_radius", slow_zone_default_radius_, 1.0);
+    private_nh_.param("slow_zone_default_approach_distance", slow_zone_default_approach_distance_, 3.0);
+    private_nh_.param("slow_zone_default_leave_distance", slow_zone_default_leave_distance_, 1.0);
+
+    slow_zones_.clear();
+
+    XmlRpc::XmlRpcValue zones_param;
+    if (!private_nh_.getParam("slow_zones", zones_param))
+    {
+        ROS_INFO("No slow_zones configured.");
+        return;
+    }
+
+    if (zones_param.getType() != XmlRpc::XmlRpcValue::TypeArray)
+    {
+        ROS_WARN("slow_zones must be a YAML list. Ignoring slow zone settings.");
+        return;
+    }
+
+    for (int i = 0; i < zones_param.size(); ++i)
+    {
+        XmlRpc::XmlRpcValue& item = zones_param[i];
+        SlowZone zone;
+        zone.radius = slow_zone_default_radius_;
+        zone.approach_distance = slow_zone_default_approach_distance_;
+        zone.leave_distance = slow_zone_default_leave_distance_;
+
+        bool ok = false;
+        if (item.getType() == XmlRpc::XmlRpcValue::TypeStruct)
+        {
+            double speed = 0.0;
+            ok = readXmlRpcMemberDouble(item, "x", zone.x) &&
+                 readXmlRpcMemberDouble(item, "y", zone.y) &&
+                 (readXmlRpcMemberDouble(item, "target_speed", speed) ||
+                  readXmlRpcMemberDouble(item, "speed", speed));
+
+            readXmlRpcMemberDouble(item, "radius", zone.radius);
+            readXmlRpcMemberDouble(item, "approach_distance", zone.approach_distance);
+            readXmlRpcMemberDouble(item, "leave_distance", zone.leave_distance);
+            zone.target_speed = std::fabs(speed);
+        }
+        else if (item.getType() == XmlRpc::XmlRpcValue::TypeArray && item.size() >= 3)
+        {
+            ok = readXmlRpcDouble(item[0], zone.x) &&
+                 readXmlRpcDouble(item[1], zone.y) &&
+                 readXmlRpcDouble(item[2], zone.target_speed);
+
+            if (item.size() >= 4) readXmlRpcDouble(item[3], zone.radius);
+            if (item.size() >= 5) readXmlRpcDouble(item[4], zone.approach_distance);
+            if (item.size() >= 6) readXmlRpcDouble(item[5], zone.leave_distance);
+            zone.target_speed = std::fabs(zone.target_speed);
+        }
+
+        if (!ok || zone.target_speed <= 0.0)
+        {
+            ROS_WARN("Invalid slow_zones[%d]. Need x, y and target_speed/speed > 0.", i);
+            continue;
+        }
+
+        zone.radius = std::max(0.0, zone.radius);
+        zone.approach_distance = std::max(0.0, zone.approach_distance);
+        zone.leave_distance = std::max(0.0, zone.leave_distance);
+        slow_zones_.push_back(zone);
+    }
+
+    ROS_INFO("Loaded %zu slow zone(s).", slow_zones_.size());
+}
+
+void MPCPlanner_path::updateSlowZonePathIndices()
+{
+    if (global_path_x.empty() || global_path_y.empty())
+    {
+        return;
+    }
+
+    for (size_t z = 0; z < slow_zones_.size(); ++z)
+    {
+        double best_dist_sq = std::numeric_limits<double>::max();
+        int best_index = -1;
+
+        for (size_t i = 0; i < global_path_x.size(); ++i)
+        {
+            const double dx = global_path_x[i] - slow_zones_[z].x;
+            const double dy = global_path_y[i] - slow_zones_[z].y;
+            const double dist_sq = dx * dx + dy * dy;
+            if (dist_sq < best_dist_sq)
+            {
+                best_dist_sq = dist_sq;
+                best_index = static_cast<int>(i);
+            }
+        }
+
+        slow_zones_[z].path_index = best_index;
+        if (best_index >= 0 && best_index < static_cast<int>(global_path_s_.size()))
+        {
+            slow_zones_[z].path_s = global_path_s_[best_index];
+            ROS_INFO("slow_zones[%zu]: path_index=%d, path_s=%.2f, target_speed=%.2f",
+                     z, best_index, slow_zones_[z].path_s, slow_zones_[z].target_speed);
+        }
+    }
+}
+
+double MPCPlanner_path::applySlowZoneSpeedLimit(int nearest_index, double px, double py, double v_allowed) const
+{
+    if (!slow_zones_enabled_ || slow_zones_.empty() || global_path_s_.empty() || nearest_index < 0)
+    {
+        return v_allowed;
+    }
+
+    const int idx = std::clamp(nearest_index, 0, static_cast<int>(global_path_s_.size()) - 1);
+    const double current_s = global_path_s_[idx];
+    double limited_v = v_allowed;
+
+    for (size_t z = 0; z < slow_zones_.size(); ++z)
+    {
+        const SlowZone& zone = slow_zones_[z];
+        if (zone.path_index < 0)
+        {
+            continue;
+        }
+
+        const double zone_start_s = zone.path_s - zone.approach_distance;
+        const double zone_end_s = zone.path_s + zone.leave_distance;
+        const double distance_to_zone = std::hypot(px - zone.x, py - zone.y);
+        const bool in_path_window = current_s >= zone_start_s && current_s <= zone_end_s;
+        const bool in_radius = distance_to_zone <= zone.radius;
+
+        if (in_path_window || in_radius)
+        {
+            limited_v = std::min(limited_v, zone.target_speed);
+            ROS_INFO_THROTTLE(1.0,
+                              "Slow zone active[%zu]: target_speed=%.2f, current_s=%.2f, zone_s=%.2f",
+                              z, zone.target_speed, current_s, zone.path_s);
+        }
+    }
+
+    return limited_v;
 }
 
 double MPCPlanner_path::anglarRegularization(nav_msgs::Odometry& base_odometry,double delta_d)
@@ -123,6 +294,7 @@ void MPCPlanner_path::initialize()
     private_nh_.param<std::string>("save_filename", filename_, "/home/cyc/campus_ws/mpcdata/real.csv");
     private_nh_.param("use_state_projection", use_state_projection_, true);   //false 關閉
     private_nh_.param("state_projection_delay", state_projection_delay_, 0.5);
+    loadSlowZonesFromParams();
 
 
     ROS_INFO("Data will be saved to: %s", filename_.c_str());
@@ -133,7 +305,7 @@ void MPCPlanner_path::initialize()
     {
         
         //目標距離誤差
-        double goal_dist_tol_  =0.2;   //目標距離誤差
+        double goal_dist_tol_ = 0.2;   //目標距離誤差
         double rotate_tol_ = 0.5;      //旋轉誤差
         double convert_offset_ = 0;    //轉換偏移量
 
@@ -216,12 +388,23 @@ void MPCPlanner_path::setPlan(const std_msgs::Float64MultiArrayConstPtr &msg)
 {
     global_path_x.clear();
     global_path_y.clear();
+    global_path_s_.clear();
 
     for(int i = 0;i<msg->data.size();i+=2)
     {
         global_path_x.emplace_back(msg->data[i]);
         global_path_y.emplace_back(msg->data[i+1]);
     }
+
+    global_path_s_.resize(global_path_x.size(), 0.0);
+    for (size_t i = 1; i < global_path_x.size(); ++i)
+    {
+        const double dx = global_path_x[i] - global_path_x[i - 1];
+        const double dy = global_path_y[i] - global_path_y[i - 1];
+        global_path_s_[i] = global_path_s_[i - 1] + std::hypot(dx, dy);
+    }
+
+    updateSlowZonePathIndices();
 
     std::cout<<"global_path_x.size() = "<< global_path_x.size() <<std::endl;
     std::cout<<"global_path_y.size() = "<< global_path_y.size() <<std::endl;
@@ -282,7 +465,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
     
     
     theta1 = tf2::getYaw(msg->pose.pose.orientation);
-    theta1 = theta1 - M_PI/3;
+    // theta1 = theta1 - M_PI/3; 
     vx = msg->twist.twist.linear.x;
     vy = msg->twist.twist.linear.y;
     
@@ -890,11 +1073,19 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg)
             v_allowed *= std::clamp(factor, 0.0, 1.0);
         }
 
+        const double v_allowed_before_slow_zone = v_allowed;
+        v_allowed = applySlowZoneSpeedLimit(nearestIndex, px_proj, py_proj, v_allowed);
+        const bool slow_zone_phase = v_allowed < v_allowed_before_slow_zone - 1e-6;
+
         // 7. EMA 平滑 + Δv 限幅 (方案A)
         double raw_v = alpha * v_allowed + (1.0 - alpha) * prev_v_ref;
         // 動態下限: CRUISE/RESUME 階段且非終點才用 v_min_ref，下限可降至 0
         bool lower_phase = ((vel_state == CRUISE || vel_state == RESUME) && !endpoint_phase);
         double lower = lower_phase ? v_min_ref : 0.0;
+        if (slow_zone_phase)
+        {
+            lower = std::min(lower, v_allowed);
+        }
         raw_v = std::clamp(raw_v, lower, v_max_ref);
         // double dv = std::clamp(raw_v - prev_v_ref, -max_delta_v, max_delta_v);
 
