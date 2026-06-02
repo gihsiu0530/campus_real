@@ -8,9 +8,9 @@
         approach_distance starts limiting speed before the point.
         leave_distance keeps the low speed briefly after passing the point. -->
         <rosparam param="slow_zones">
-          - {x: 299.51, y: 100.23, target_speed: 0.4, radius: 1.2, approach_distance: 5.0, leave_distance: 2.0}
-          - {x: 68.64, y:  -60.58, target_speed: 0.4, radius: 1.2, approach_distance: 5.0, leave_distance: 2.0}
-          - {x: 130.01, y:  155.76, target_speed: 0.4, radius: 1.2, approach_distance: 5.0, leave_distance: 2.0}
+          - {x: 299.51, y: 100.23, target_speed: 1.0, radius: 1.2, approach_distance: 6.0, leave_distance: 2.0}
+          - {x: 68.64, y:  -60.58, target_speed: 1.0, radius: 1.2, approach_distance: 6.0, leave_distance: 2.0}
+          - {x: 130.01, y:  155.76, target_speed: 1.0, radius: 1.2, approach_distance: 6.0, leave_distance: 2.0}
         </rosparam>
        
         <param name="slow_zones_enabled" value="true" />

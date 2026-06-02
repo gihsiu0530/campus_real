@@ -189,7 +189,7 @@
             bool use_state_projection_ = true;
             double state_projection_delay_ = 0.4;  // seconds
 
-            double min_v_forward_ = 1.5;   // 前進最小速度 0.6
+            double min_v_forward_ = 2.0;   // 前進最小速度 0.6
             double max_v_forward_ = 2.5;   // 前進最大速度 4
             double min_v_reverse_ = 0.22;   // 倒退最小速度（較慢）
             double max_v_reverse_ = 0.40;   // 倒退最大速度（較小）

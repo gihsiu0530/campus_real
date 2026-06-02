@@ -83,51 +83,28 @@ else:
 x_final = original_x * (1 - weights) + x_global_smooth * weights
 y_final = original_y * (1 - weights) + y_global_smooth * weights
 
-# --- 4. Densify High-Curvature Regions ---
-# Estimate curvature from heading change per distance, then interpolate only where curvature is high.
+# --- 4. Uniform Density Sampling ---
+# Calculate cumulative distance along the path
 dx = np.diff(x_final)
 dy = np.diff(y_final)
 seg_len = np.hypot(dx, dy)
-seg_len_safe = np.maximum(seg_len, 1e-6)
+cum_dist = np.insert(np.cumsum(seg_len), 0, 0.0)
 
-segment_heading = np.arctan2(dy, dx)
-heading_change = np.array([
-    angular_diff(segment_heading[i], segment_heading[i - 1])
-    for i in range(1, len(segment_heading))
-])
+# Create uniformly spaced distances
+target_spacing = 0.7
+sampled_dists = np.arange(0, cum_dist[-1], target_spacing)
 
-curvature = np.zeros(len(x_final))
-if len(x_final) >= 3:
-    avg_len = 0.5 * (seg_len_safe[1:] + seg_len_safe[:-1])
-    curvature[1:-1] = np.abs(heading_change) / np.maximum(avg_len, 1e-6)
+# Ensure the last point is included if it's not already
+if len(sampled_dists) == 0 or sampled_dists[-1] < cum_dist[-1]:
+    sampled_dists = np.append(sampled_dists, cum_dist[-1])
 
-curvature_threshold = np.percentile(curvature, 85) if len(curvature) > 0 else 0.0
-spacing_low_curv_m = 1.0
-spacing_high_curv_m = 0.3
+# Interpolate to get new x and y
+from scipy.interpolate import interp1d
+interp_x = interp1d(cum_dist, x_final, kind='linear')
+interp_y = interp1d(cum_dist, y_final, kind='linear')
 
-dense_x = [x_final[0]]
-dense_y = [y_final[0]]
-
-for i in range(len(x_final) - 1):
-    local_curvature = max(curvature[i], curvature[i + 1])
-    this_seg_len = seg_len_safe[i]
-
-    if curvature_threshold > 0:
-        # 0 curvature -> 0.5 m spacing, threshold and above -> 0.2 m spacing.
-        curv_ratio = np.clip(local_curvature / curvature_threshold, 0.0, 1.0)
-    else:
-        curv_ratio = 0.0
-
-    target_spacing = spacing_low_curv_m - (spacing_low_curv_m - spacing_high_curv_m) * curv_ratio
-    subsegments = max(1, int(np.ceil(this_seg_len / target_spacing)))
-
-    for j in range(1, subsegments + 1):
-        t = j / subsegments
-        dense_x.append((1 - t) * x_final[i] + t * x_final[i + 1])
-        dense_y.append((1 - t) * y_final[i] + t * y_final[i + 1])
-
-dense_x = np.array(dense_x)
-dense_y = np.array(dense_y)
+dense_x = interp_x(sampled_dists)
+dense_y = interp_y(sampled_dists)
 
 # Save result
 df_result = pd.DataFrame({
@@ -173,5 +150,5 @@ plt.grid(True)
 plt.savefig('selective_smoothing_zoom.png')
 
 print(f"Smoothed {np.sum(mask)} points (raw detected), affected {np.sum(weights > 0.01)} points with blending.")
-print(f"Dense output points: {len(dense_x)} (original smoothed points: {len(x_final)}), curvature threshold={curvature_threshold:.6f}")
-print(f"Spacing mapping: low curvature={spacing_low_curv_m:.2f} m, high curvature={spacing_high_curv_m:.2f} m")
+print(f"Dense output points: {len(dense_x)} (original smoothed points: {len(x_final)}), spacing=0.5m")
+

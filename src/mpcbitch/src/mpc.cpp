@@ -1,6 +1,8 @@
 #include "mpcbitch/mpc_final.h"
 #include <OsqpEigen/OsqpEigen.h>
+#include <algorithm>
 #include <carla_msgs/CarlaEgoVehicleControl.h>
+#include <cmath>
 #include <cstdlib>
 #include <deque>
 #include <eigen3/Eigen/Core>
@@ -27,6 +29,37 @@ ros::Publisher cte_pub;
 
 static double prev_theta = 0.0;
 static bool reversed_mode = false;
+static double latency_compensation_sec = 0.0; // 補償延遲秒數
+
+static double normalizeAngle(double angle) {
+  while (angle > M_PI)
+    angle -= 2.0 * M_PI;
+  while (angle < -M_PI)
+    angle += 2.0 * M_PI;
+  return angle;
+}
+
+// latency compensation function
+static void projectStateForward(double x, double y, double theta, double v,
+                                double omega, double dt, double &x_pred,
+                                double &y_pred, double &theta_pred) {
+  if (dt <= 0.0) {
+    x_pred = x;
+    y_pred = y;
+    theta_pred = theta;
+    return;
+  }
+
+  if (std::fabs(omega) < 1e-5) {
+    x_pred = x + v * std::cos(theta) * dt;
+    y_pred = y + v * std::sin(theta) * dt;
+  } else {
+    double theta_next = theta + omega * dt;
+    x_pred = x + (v / omega) * (std::sin(theta_next) - std::sin(theta));
+    y_pred = y - (v / omega) * (std::cos(theta_next) - std::cos(theta));
+  }
+  theta_pred = normalizeAngle(theta + omega * dt);
+}
 
 double MPCPlanner_path::dist(const geometry_msgs::PoseStamped &node1,
                              const geometry_msgs::PoseStamped &node2) {
@@ -94,6 +127,7 @@ double MPCPlanner_path::anglarRegularization(nav_msgs::Odometry &base_odometry,
   // 如果調整過後的角速度的絕對值小於設定最小角速度上限
   // 將min_w_的絕對值*w_cmd的正負號
   // 將角速度限制在最小角速度上限
+  // min_delta <0
   else if (std::fabs(delta_cmd) < min_delta_) {
     delta_cmd = std::copysign(min_delta_, delta_cmd);
   }
@@ -112,8 +146,11 @@ void MPCPlanner_path::initialize() {
   u_prev = Eigen::Vector2d(min_v_, 0);
 
   private_nh_.param<std::string>("save_filename", filename_,
-                                 "/home/cyc/campus_ws/mpcdata/simulation.csv");
+                                 "/home/gihsiu0530/mpc/mpcdata/simulation.csv");
+  private_nh_.param<double>("latency_compensation_sec",
+                            latency_compensation_sec, latency_compensation_sec);
   ROS_INFO("Data will be saved to: %s", filename_.c_str());
+  ROS_INFO("Latency compensation horizon: %.3f s", latency_compensation_sec);
 
   ROS_INFO("MPC Planner initialized START");
   if (!initialize_) {
@@ -123,20 +160,20 @@ void MPCPlanner_path::initialize() {
     double rotate_tol_ = 0.5;    // 旋轉誤差
     double convert_offset_ = 0;  // 轉換偏移量
 
-    // 解黎卡提方程式迭代次數
-    // 預測時間域:是指在每個控制週期內 模型預測控制器用來預測系統行為的時間範圍
-    //   而這個時間範圍由控制器在每個控制週期內向前預測的時間步數確定
-    //   例:如果在每個控制週期內預測未來5個時間步 那預測時間域就是從當前時刻開始
-    //   往後推5個時間步的時間範圍
+    /*
+    解黎卡提方程式迭代次數
+    預測時間域:是指在每個控制週期內 模型預測控制器用來預測系統行為的時間範圍
+    而這個時間範圍由控制器在每個控制週期內向前預測的時間步數確定
+    例:如果在每個控制週期內預測未來5個時間步 那預測時間域就是從當前時刻開始
+    往後推5個時間步的時間範圍
+    控制時間域:在每個控制週期內 控制器用來計算最優控制輸入的時間範圍
+    其時間範圍 由控制週期和系統動態決定
+    控制時間域可能比預測時間域短
+    因為控制器只能在當下控制週期內計算出最優控制輸入 無法預測未來更遠的時間
+    */
 
-    // 控制時間域:在每個控制週期內 控制器用來計算最優控制輸入的時間範圍
-    //  其時間範圍 由控制週期和系統動態決定
-    //  控制時間域可能比預測時間域短
-    //  因為控制器只能在當下控制週期內計算出最優控制輸入 無法預測未來更遠的時間
-    //
-
-    p_ = 40; // 40   //30             //預測時間域
-    m_ = 15; // 15       //8             //控制時域*/
+    p_ = 45; // 40   //30             //預測時間域
+    m_ = 15; // 15       //8             //控制時域*/ ruruka
 
     // 權重矩陣：用於懲罰在進行路徑追蹤控制時的狀態誤差[x,y,theta,v]
 
@@ -144,18 +181,18 @@ void MPCPlanner_path::initialize() {
     int dim_u = 2;
     Q_.resize(dim_x, dim_x);
     Q_.setZero();
-    Q_(0, 0) = 500; // 500  //600
-    Q_(1, 1) = 500; // 500  //600 //
-    Q_(2, 2) = 300; // 300  //400
-    Q_(3, 3) = 100;
+    Q_(0, 0) = 500; // 500  //600  // 縱向位置誤差
+    Q_(1, 1) = 500; // 400  // CTE
+    Q_(2, 2) = 400; // 400  //航向角誤差
+    Q_(3, 3) = 100; // 速度誤差
 
     // 權重矩陣：用於懲罰在進行路徑追蹤控制時的輸入誤差[v,w]
     // 宣告 2*2 矩陣 [R_ 0 ]
     //              [0  R_]
     R_.resize(dim_u, dim_u);
     R_.setZero();
-    R_(0, 0) = 50;
-    R_(1, 1) = 10; // 20  //10 //
+    R_(0, 0) = 50; // 加速度變化率
+    R_(1, 1) = 30; // 50 //方向盤變化率
 
     // 採樣時間
     double controller_frequency = 10;
@@ -214,7 +251,7 @@ void MPCPlanner_path::setPlan(const std_msgs::Float64MultiArrayConstPtr &msg) {
 
 void MPCPlanner_path::turnIndexCallback(const std_msgs::Int32::ConstPtr &msg) {
   turn_index_ = msg->data;
-  turn_index_ = 10000; // 66 30 調超大讓他不倒車
+  turn_index_ = 100000; // 66 30 調超大讓他不倒車
   ROS_INFO("turn point:%d", turn_index_);
 }
 
@@ -254,18 +291,29 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
 
   theta = regularizeAngle(theta1);
 
-  next_px = px + vt * cos(theta) * d_t_;
-  next_py = py + vt * sin(theta) * d_t_;
+  double mpc_px = px;
+  double mpc_py = py;
+  double mpc_theta = theta;
+
+  // 延遲補償
+  projectStateForward(px, py, theta, v_body, omega, latency_compensation_sec,
+                      mpc_px, mpc_py, mpc_theta);
+
+  next_px = mpc_px + vt * cos(mpc_theta) * d_t_;
+  next_py = mpc_py + vt * sin(mpc_theta) * d_t_;
 
   base_odom.twist.twist.linear.x = v_body;
   base_odom.twist.twist.linear.y = 0;
   base_odom.twist.twist.angular.z = omega;
 
   double delta = atan(base_odom.twist.twist.angular.z * L / vt);
-
+  //info
   std::cout << "car_x = " << px << std::endl;
   std::cout << "car_y = " << py << std::endl;
   std::cout << "car_theta = " << theta << std::endl;
+  std::cout << "compensated_x = " << mpc_px << std::endl;
+  std::cout << "compensated_y = " << mpc_py << std::endl;
+  std::cout << "compensated_theta = " << mpc_theta << std::endl;
   std::cout << "car_vel_x = " << vx << std::endl;
   std::cout << "car_vel_y = " << vy << std::endl;
   std::cout << " delta = " << delta << std::endl;
@@ -308,8 +356,8 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     int candidate_id = (int)begin;
 
     for (size_t i = begin; i < end; ++i) {
-      double dx = global_path_x[i] - px;
-      double dy = global_path_y[i] - py;
+      double dx = global_path_x[i] - mpc_px;
+      double dy = global_path_y[i] - mpc_py;
       double dist = std::hypot(dx, dy);
       if (dist < nearest_distance) {
         nearest_distance = dist;
@@ -343,7 +391,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     org_wp_rearange_waypoint_x.clear();
     org_wp_rearange_waypoint_y.clear();
 
-    ROS_INFO("starting_waypoint_for mpc is: %d", start_id);
+    // ROS_INFO("starting_waypoint_for mpc is: %d", start_id); //info
 
     if (start_id < 0) {
       start_id = 0;
@@ -365,7 +413,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     //---------NEW calculate cte & epsi START---------
 
     // 1. 車輛全局位置
-    Eigen::Vector2d vehiclePos(px, py);
+    Eigen::Vector2d vehiclePos(mpc_px, mpc_py);
 
     // 2. 在全局路徑中找出車輛位置的投影點（用相鄰點線段近似參考曲線）
     double minDistance = 1e6;
@@ -446,19 +494,20 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     cte_real = cte;
 
     // ===== 反車鎖存與負速參考 =====
-    double epsi = regularizeAngle(theta - refHeading_adj);
+    double epsi = regularizeAngle(mpc_theta - refHeading_adj);
     if (abs(epsi) > 3) {
       epsi = 0;
     }
 
-    if (fabs(cte) > 1) {
-      cte = 1 * (cte > 0 ? 1.0 : -1.0);
-    }
+    // cte 的絕對值過大時限制在 ±1
+    //  if (fabs(cte) > 1) {
+    //    cte = 1 * (cte > 0 ? 1.0 : -1.0);
+    //  }
 
     // 輸出調試信息
-    ROS_INFO(
-        "Frenet: Projection=(%.3f, %.3f), d=%.3f, refHeading=%.3f, epsi=%.3f",
-        projection.x(), projection.y(), cte, refHeading, epsi);
+    // ROS_INFO(
+    //     "Frenet: Projection=(%.3f, %.3f), d=%.3f, refHeading=%.3f, epsi=%.3f",
+    //     projection.x(), projection.y(), cte, refHeading, epsi);//info
 
     // ----- 使用 Frenet 誤差組成 MPC 的狀態誤差 -----
     // 此處的設計會依你的 MPC 模型而定，下面僅作為一個範例
@@ -466,7 +515,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     // 這裡我們直接用投影點與 refHeading 作為目標（你也可以根據 d 與 epsi
     // 設計誤差向量） 參數設定
     // ====== Velocity Planning with Mirror-Line Pause Logic ======
-    static double alpha = 0.15;    // EMA 平滑係數
+    static double alpha = 0.1;     // EMA 平滑係數 0.15
     static double prev_v_ref = vt; // 上一時刻輸出速度
     static double last_v_ref = vt; // 計算 a_ref 用
 
@@ -559,7 +608,8 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
         theta_ref[i] += 2.0 * M_PI;
     }
 
-    int M = 5; // 4  mirror_back4  //12 for 0.2m間隔  //5 for 0.5m間隔
+    //=================================================================
+    int M = 8; // 4  mirror_back4  //12 for 0.2m間隔  //5 for 0.5m間隔
                // //轉彎的時候看後N個路徑點的方向盤角度做角度平均
     double kappa_sum = 0.0;
 
@@ -571,6 +621,179 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
       kappa_sum += computeKappaAt(ii);
     }
     kappa_avg_steering = kappa_sum / double(M);
+    //=================================================================
+
+    // moria
+    // ==========================================
+    // --- 依照「曲率大小」動態調整看前方的點數 M ---
+    // ==========================================
+
+    // int steer_lookahead = 1; // 往前預視的起始偏移量
+
+    // // 1. 先探測車頭前方的「局部最大曲率」
+    // // 看前方最近 3 個點，抓出最大的彎度(取絕對值)，避免單一雜訊干擾
+    // double local_max_kappa = 0.0;
+    // for (int k = 0; k < 3; ++k) {
+    //     int check_idx = std::min(nearestIndex + steer_lookahead + k,
+    //     (int)global_path_x.size() - 1); local_max_kappa =
+    //     std::max(local_max_kappa, std::fabs(computeKappaAt(check_idx)));
+    // }
+
+    // // 2. 設定 M 的「天花板」與「地板」 (這兩個數字你可以自由微調)
+    // int M_max = 13;  // 直道時，最多看 18 個點 (看很遠，保持直行穩定)
+    // int M_min = 5;   // 急彎時，最少看 5 個點 (看很近，緊貼彎角不提早回正)
+
+    // // 設定多彎算「急彎」(例如曲率達到 0.15 rad/m 就視為最急的彎)
+    // double kappa_threshold = 0.18;
+
+    // // 計算彎度比例 (0.0 代表全直，1.0 代表達到急彎門檻)
+    // double kappa_ratio = std::min(local_max_kappa / kappa_threshold, 1.0);
+
+    // // 3. 線性內插計算當下的「動態點數 M」
+    // // 邏輯：曲率越大(kappa_ratio 越接近 1)，M
+    // 會被扣得越多(變小)；曲率越小，M 越大 int dynamic_M = M_max -
+    // static_cast<int>(std::round(kappa_ratio * (M_max - M_min)));
+
+    // // 防呆機制，確保 dynamic_M 絕對落在 M_min 到 M_max 之間
+    // dynamic_M = std::max(M_min, std::min(M_max, dynamic_M));
+
+    // // 4. 依照算出來的 dynamic_M，去加總未來的方向盤曲率
+    // double kappa_sum = 0.0;
+    // int valid_points_count = 0;
+
+    // for (int j = 0; j < dynamic_M; ++j) {
+    //   int ii = std::min(nearestIndex + steer_lookahead + j,
+    //   (int)global_path_x.size() - 1);
+
+    //   kappa_sum += computeKappaAt(ii);
+    //   valid_points_count++;
+
+    //   // 如果已經讀到陣列最後一個點，提早結束
+    //   if (ii == (int)global_path_x.size() - 1) {
+    //     break;
+    //   }
+    // }
+
+    // // 防呆除以零
+    // kappa_avg_steering = kappa_sum / std::max(1.0,
+    // double(valid_points_count));
+    // ==========================================
+
+    // int steer_lookahead = 0; // 往前預視的起始偏移量
+
+    // // 1. 取得當前車速 (取絕對值，讓倒車也能適用相同的預視邏輯)
+    // double current_speed = std::abs(vt);
+
+    // // 2. 設定 M 的「天花板」與「地板」 (這兩個數字你可以自由微調)
+    // int M_max = 15;  // 高速時，最多看 15 個點 (看比較遠，提早反應，防畫龍)
+    // int M_min = 8;   // 低速時，最少看 5 個點
+    // (看比較近，貼死彎角，不提早切西瓜)
+
+    // // 3. 設定速度的「上下限門檻」 (單位: m/s)
+    // double v_low  = 2.0; // 當車速低於 1.0 m/s，直接使用 M_min
+    // double v_high = 3.0; // 當車速高於 3.0 m/s，直接使用 M_max
+
+    // // 4. 計算速度比例 (0.0 代表低速，1.0 代表高速)
+    // double speed_ratio = (current_speed - v_low) / (v_high - v_low);
+
+    // // 限制比例範圍在 0.0 到 1.0 之間
+    // speed_ratio = std::clamp(speed_ratio, 0.0, 1.0);
+
+    // // 5. 線性內插計算當下的「動態點數 M」
+    // // 邏輯：速度越快 (speed_ratio 越接近 1)，M 就越大
+    // int dynamic_M = M_min + static_cast<int>(std::round(speed_ratio * (M_max
+    // - M_min)));
+
+    // // 防呆機制，確保 dynamic_M 絕對落在 M_min 到 M_max 之間
+    // dynamic_M = std::max(M_min, std::min(M_max, dynamic_M));
+
+    // // 6. 依照算出來的 dynamic_M，去加總未來的方向盤曲率
+    // double kappa_sum = 0.0;
+    // int valid_points_count = 0;
+
+    // for (int j = 0; j < dynamic_M; ++j) {
+    //   int ii = std::min(nearestIndex + steer_lookahead + j,
+    //   (int)global_path_x.size() - 1);
+
+    //   kappa_sum += computeKappaAt(ii);
+    //   valid_points_count++;
+
+    //   // 如果已經讀到陣列最後一個點，提早結束
+    //   if (ii == (int)global_path_x.size() - 1) {
+    //     break;
+    //   }
+    // }
+
+    // // 防呆除以零
+    // kappa_avg_steering = kappa_sum / std::max(1.0,
+    // double(valid_points_count));
+
+    // ==========================================
+    // --- 修改後的設計：看前方固定「物理距離」 ---2026/03/31
+    // ==========================================
+
+    // int steer_lookahead = 1; // 往前預視的起始偏移量
+
+    // // 1. 先探測車頭前方的「局部最大曲率」
+    // // 為了避免單一點的雜訊，我們看前方最近 3 個點，抓出最大的彎度(取絕對值)
+    // double local_max_kappa = 0.0;
+    // for (int k = 0; k < 3; ++k) {
+    //     int check_idx = std::min(nearestIndex + steer_lookahead + k,
+    //     (int)global_path_x.size() - 1); local_max_kappa =
+    //     std::max(local_max_kappa, std::fabs(computeKappaAt(check_idx)));
+    // }
+
+    // // 2. 設定預視距離的「天花板」與「地板」 (你可以微調這兩個數字)
+    // double max_lookahead_dist = 3.5;  // 直道時，最遠看 4.0 公尺
+    // (保持直行穩定，不畫龍) double min_lookahead_dist = 2.5;  //
+    // 急彎時，最近看 2.0 公尺 (精準貼死彎角，不提早回正)
+
+    // // 設定多彎算「急彎」(例如曲率達到 0.3 rad/m 就視為最急的彎)
+    // double kappa_threshold = 0.2;
+
+    // // 計算彎度比例 (0.0 代表全直，1.0 代表達到急彎門檻)
+    // double kappa_ratio = std::min(local_max_kappa / kappa_threshold, 1.0);
+
+    // // 3. 線性內插計算當下的「目標預視距離」
+    // // 邏輯：曲率越大(kappa_ratio 越接近 1)，看越近；曲率越小，看越遠
+    // double target_lookahead_dist_m = max_lookahead_dist - kappa_ratio *
+    // (max_lookahead_dist - min_lookahead_dist);
+
+    // // 4. 依照算出來的距離，去加總未來的方向盤曲率
+    // double kappa_sum = 0.0;
+    // int valid_points_count = 0;
+    // double accumulated_dist = 0.0;
+
+    // for (int j = 0; j < 50; ++j) {
+    //   int curr_idx = std::min(nearestIndex + steer_lookahead + j,
+    //   (int)global_path_x.size() - 1);
+
+    //   // 計算累計走過的物理距離
+    //   if (j > 0) {
+    //     int prev_idx = std::min(nearestIndex + steer_lookahead + j - 1,
+    //     (int)global_path_x.size() - 1); double dx = global_path_x[curr_idx] -
+    //     global_path_x[prev_idx]; double dy = global_path_y[curr_idx] -
+    //     global_path_y[prev_idx]; accumulated_dist += std::hypot(dx, dy);
+    //   }
+
+    //   // 當累計距離超過動態算出的 target_lookahead_dist_m，就停止加總
+    //   if (accumulated_dist > target_lookahead_dist_m) {
+    //     break;
+    //   }
+
+    //   // 注意：這裡不取絕對值，因為方向盤有分左轉(+)右轉(-)
+    //   kappa_sum += computeKappaAt(curr_idx);
+    //   valid_points_count++;
+
+    //   if (curr_idx == (int)global_path_x.size() - 1) {
+    //     break;
+    //   }
+    // }
+
+    // // 防呆除以零
+    // kappa_avg_steering = kappa_sum / std::max(1.0,
+    // double(valid_points_count));
+    //=================================================================================
 
     // ==========================================
     // 速度規劃用(曲率)
@@ -646,13 +869,13 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     double current_v = std::abs(vt);
 
     double v_slow_bound = 2.5; // 低速區間 (m/s) -> 在此速度以下視為低速
-    double v_fast_bound = 2.8; // 高速區間 (m/s) -> 在此速度以上視為高速
+    double v_fast_bound = 2.9; // 高速區間 (m/s) -> 在此速度以上視為高速
 
     // 3. 定義門檻區間 (核心設定)
     // 低速時 (Loose)：容忍度高 (0.02)，忽略路徑抖動，利於出彎加速
     // 高速時 (Strict)：容忍度低 (0.005)，對彎道超敏感，確保入彎前提早煞車
     double k_thresh_loose = 0.01;   // 0.02
-    double k_thresh_strict = 0.007; // 0.005
+    double k_thresh_strict = 0.005; // 0.005
 
     // 4. 計算速度比例 (0.0 ~ 1.0)
     double speed_ratio =
@@ -701,7 +924,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     }
 
     // 6. 終點前 N 點緩降（加速版）
-    int N_end_slow = 10; // 終點前20m降速 //40
+    int N_end_slow = 30; // 終點前20m降速 //40
     int remain_pts = (int)global_path_x.size() - nearestIndex;
     bool endpoint_phase = (remain_pts <= N_end_slow);
     if (endpoint_phase) {
@@ -770,8 +993,8 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     //     prev_v_ref = v_ref; // 與後續 a_ref 計算保持一致
     // }
 
-    ROS_INFO("nearest=%d  turn=%d  remain=%d  state=%d", nearestIndex,
-             turn_index_, turn_index_ - nearestIndex, vel_state);
+    // ROS_INFO("nearest=%d  turn=%d  remain=%d  state=%d", nearestIndex,
+    //          turn_index_, turn_index_ - nearestIndex, vel_state);
 
     // 3. 用平均曲率做前饋轉向
     // double delta_d = std::atan(kappa_avg_steering * L);
@@ -780,10 +1003,10 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
 
     double ref_theta = refHeading + (reversed_mode ? M_PI : 0.0);
 
-    Eigen::Vector4d s(px, py, theta, v_body);
+    Eigen::Vector4d s(mpc_px, mpc_py, mpc_theta, v_body);
     // Eigen::Vector4d s_d(projection.x(), projection.y(), ref_theta, v_ref);
     Eigen::Vector4d s_d(projection.x(), projection.y(), refHeading_adj, v_ref);
-    Eigen::Vector2d p0(global_path_x[nearestIndex - 1],
+    Eigen::Vector2d p0(global_path_x[nearestIndex - 1],   //mimori
                        global_path_y[nearestIndex - 1]);
     Eigen::Vector2d p1(global_path_x[nearestIndex],
                        global_path_y[nearestIndex]);
@@ -808,6 +1031,12 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
       }
     }
 
+    // 加入 EMA 濾波器讓 u_delta 平滑
+    static double alpha_steer = 0.92; // 轉向平滑係數，可依需求微調
+    static double prev_u_delta = 0.0;
+    u_delta = alpha_steer * u_delta + (1.0 - alpha_steer) * prev_u_delta;
+    prev_u_delta = u_delta;
+
     du_p_ = Eigen::Vector2d(u_a - u_r[0], regularizeAngle(u_delta - u_r[1]));
     // double L = 1.66;
     //  先定義車輛參數，假設 L 為車輛軸距，令 l_r = L/2 (你可以根據實際數值調整)
@@ -829,11 +1058,11 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     cte_test.data.emplace_back(cte);
 
     ROS_INFO("-----------------------------------------------");
-
-    std::cout << "acceration = " << u_a << std::endl;
-    std::cout << "steeringangle = " << u_delta << std::endl;
-    std::cout << "theta = " << theta << std::endl;
-    std::cout << " lateral error = \n" << cte << std::endl;
+    //info
+    // std::cout << "acceration = " << u_a << std::endl;
+    // std::cout << "steeringangle = " << u_delta << std::endl;
+    // std::cout << "theta = " << theta << std::endl;
+    // std::cout << " lateral error = \n" << cte << std::endl;
 
     ros::Duration gan(0.001);
 
@@ -1079,15 +1308,35 @@ Eigen::Vector2d MPCPlanner_path::_mpcControl(Eigen::Vector4d s,
   solver.data()->setLowerBound(lower);
   solver.data()->setUpperBound(upper);
 
+  // if (!solver.initSolver()) { //bug
+  //   ROS_ERROR("OSQP 初始化失敗");
+  //   return Eigen::Vector2d::Zero();
+  // }
+
+  // if (solver.solveProblem() != OsqpEigen::ErrorExitFlag::NoError) {
+  //   ROS_ERROR("OSQP 求解失敗");
+  //   return Eigen::Vector2d::Zero();
+  // }
+
+  // auto solution = solver.getSolution();
+
   if (!solver.initSolver()) {
     ROS_ERROR("OSQP 初始化失敗");
-    return Eigen::Vector2d::Zero();
+    return u_prev; // 安全機制：初始化失敗時維持上一幀動作
   }
 
-  if (solver.solveProblem() != OsqpEigen::ErrorExitFlag::NoError) {
-    ROS_ERROR("OSQP 求解失敗");
-    return Eigen::Vector2d::Zero();
+  if (!solver.solve()) {
+    ROS_ERROR("OSQP 發生內部錯誤");
+    return u_prev; // 安全機制：求解失敗時維持上一幀動作
   }
+
+  // ==================== 解法 1 放這裡 ====================
+  // 核心安全閥：檢查這題是不是「無解 (Infeasible)」
+  if (solver.workspace()->info->status_val != OSQP_SOLVED) {
+    ROS_WARN("OSQP ", solver.workspace()->info->status_val);
+    return u_prev; // 安全機制：無解時，千萬不要讀取 solution，直接回傳上一次的安全油門/方向盤！
+  }
+  // =======================================================
 
   auto solution = solver.getSolution();
 
