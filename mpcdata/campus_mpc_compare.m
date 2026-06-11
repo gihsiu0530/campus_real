@@ -1,8 +1,8 @@
 %% 1. 讀取資料
 % 請確保路徑正確
-real_data = readtable(['/home/cyc/campus_ws/mpcdata/real_delay0.4.csv']);
-back_data = readtable('/home/cyc/campus_ws/src/mpc_4state/src/0414.csv');
-sim_data  = readtable(['/home/cyc/campus_ws/mpcdata/real.csv']);
+real_data = readtable(['/home/cyc/campus_ws/mpcdata/backgrden20260608/3.csv']);
+back_data = readtable(['/home/cyc/campus_ws/path/smoothed/back_garden_07new.csv']);
+sim_data  = readtable(['/home/cyc/campus_ws/mpcdata/backgrden20260608/1.csv']);
 
 % 提取座標
 pxx = real_data.px;
@@ -91,7 +91,9 @@ mean_error_sim = mean(error_sim);
 
 % epsi 統計 (航向角誤差)
 epsi_deg = rad2deg(real_data.epsi);
+epsi_deg1 = rad2deg(sim_data.epsi);
 rmse_eps_deg  = sqrt(mean(epsi_deg.^2));
+rmse_eps_deg1  = sqrt(mean(epsi_deg1.^2));
 max_eps_deg   = max(abs(epsi_deg));
 
 %% 5. 繪圖
@@ -121,5 +123,5 @@ grid on;
 
 % 輸出簡單報告到終端機
 fprintf('--- 統計結果 ---\n');
-fprintf('Real Data -> RMSE: %.4f m, Max Error: %.4f m, Mean Error: %.4f m\n', rmse, max_error, mean_error);
-fprintf('Sim  Data -> RMSE: %.4f m, Max Error: %.4f m, Mean Error: %.4f m\n', rmse_sim, max_error_sim, mean_error_sim);
+fprintf('Real Data -> RMSE: %.4f m, Max Error: %.4f m, Mean Error: %.4f m,RMSE(epsi): %.4f degree\n', rmse, max_error, mean_error, rmse_eps_deg);
+fprintf('Sim  Data -> RMSE: %.4f m, Max Error: %.4f m, Mean Error: %.4f m\n,RMSE(epsi): %.4f degree', rmse_sim, max_error_sim, mean_error_sim, rmse_eps_deg1);

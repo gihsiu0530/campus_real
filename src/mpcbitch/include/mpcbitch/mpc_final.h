@@ -189,11 +189,28 @@
             bool use_state_projection_ = true;
             double state_projection_delay_ = 0.4;  // seconds
 
-            double min_v_forward_ = 2.0;   // 前進最小速度 0.6
-            double max_v_forward_ = 2.5;   // 前進最大速度 4
+            double min_v_forward_ = 1.0;   // 前進最小速度 2    0.8
+            double max_v_forward_ = 2.5;   // 前進最大速度 2.5    1.8
             double min_v_reverse_ = 0.22;   // 倒退最小速度（較慢）
             double max_v_reverse_ = 0.40;   // 倒退最大速度（較小）
-             
+            
+              // Deadband parameters
+            double kappa_straight_ = 0.05;
+            double cte_enter_ = 0.015;
+            double epsi_enter_ = 0.005;
+            double cte_exit_ = 0.035;
+            double epsi_exit_ = 0.025;
+            int debounce_cycles_ = 5;
+            
+            // Curvature speed limit parameters
+            double kappa_low_speed_thresh_ = 0.4;
+            double kappa_low_speed_ = 0.8;
+
+            // Speed planning lookahead/lookback parameters
+            double min_lookahead_ = 10.0;
+            double max_lookahead_ = 30.0;
+            double lookahead_gain_ = 10.0;
+            int look_back_dist_ = 6;
 
             //linear velocity
             double max_v_ = 0.6;              //最大線速度

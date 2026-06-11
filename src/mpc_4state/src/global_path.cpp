@@ -1,7 +1,7 @@
 // C++ Standard Library
 #include <iostream>
 #include <sstream>  //字串切割
-#include <fstream>  //檔案的輸入輸出
+#include <fstream>  //檔案的輸入輸
 #include <math.h>
 #include <cmath>
 #include <vector>
@@ -43,6 +43,7 @@ int main (int argc, char** argv)
 
     std::string line;
 
+    
     //開啟csv 檔案路徑
     //std::ifstream inFile("/home/king/mpc/turn0106.csv",std::ios::in);
     //std::ifstream inFile("/home/cyc/golf_ws/mpc/0103_straight.csv",std::ios::in); 
@@ -71,7 +72,8 @@ int main (int argc, char** argv)
     // std::ifstream inFile("/home/gihsiu0530/path_mpc_simulate/smoothed/20260123.csv",std::ios::in); 
     // std::ifstream inFile("/home/cyc/campus_ws/src/mpc_4state/src/transformed_points.csv",std::ios::in);
     // std::ifstream inFile("/home/cyc/campus_ws/src/mpc_4state/src/gymclockwise.csv",std::ios::in);  
-    std::ifstream inFile("/home/cyc/campus_ws/path/smoothed/gymclockwise.csv",std::ios::in); 
+    // std::ifstream inFile("/home/cyc/campus_ws/path/smoothed/gymclockwise.csv",std::ios::in); 
+    std::ifstream inFile("/home/cyc/campus_ws/path/smoothed/back_garden_07new.csv",std::ios::in); 
 
     if(inFile.fail()){
         ROS_ERROR("Failed to read waypoint.csv ");

@@ -1,6 +1,22 @@
 <launch>
     <!-- <node pkg="mpc_4state" type="global_path" name="global_path" output="screen" /> -->
-    
+    <param name="CTE_ENTER" value="0.02" />    //0.02
+    <param name="CTE_EXIT" value="0.035" />     //0.035
+
+    <param name="EPSI_ENTER" value="0.010" />   //0.005
+    <param name="EPSI_EXIT" value="0.025" />    //0.0025
+
+    <param name="DEBOUNCE_CYCLES" value="5" />  //5
+
+    <param name="KAPPA_LOW_SPEED_THRESH" value="0.18" />
+    <param name="KAPPA_LOW_SPEED" value="5.0" />
+
+    <!-- Speed planning lookahead/lookback parameters -->
+    <param name="MIN_LOOKAHEAD" value="5.0" />
+    <param name="MAX_LOOKAHEAD" value="30.0" />
+    <param name="LOOKAHEAD_GAIN" value="13.0" />
+    <param name="LOOK_BACK_DIST" value="4" /> 
+
     <node pkg="mpcbitch" type="mpc_back_test" name="mpc_back_test" output="screen">
         
         <!-- Slow zone example:
@@ -8,9 +24,10 @@
         approach_distance starts limiting speed before the point.
         leave_distance keeps the low speed briefly after passing the point. -->
         <rosparam param="slow_zones">
-          - {x: 299.51, y: 100.23, target_speed: 1.0, radius: 1.2, approach_distance: 6.0, leave_distance: 2.0}
+          <!-- - {x: 299.51, y: 100.23, target_speed: 1.0, radius: 1.2, approach_distance: 6.0, leave_distance: 2.0}
           - {x: 68.64, y:  -60.58, target_speed: 1.0, radius: 1.2, approach_distance: 6.0, leave_distance: 2.0}
-          - {x: 130.01, y:  155.76, target_speed: 1.0, radius: 1.2, approach_distance: 6.0, leave_distance: 2.0}
+          - {x: 130.01, y:  155.76, target_speed: 1.0, radius: 1.2, approach_distance: 6.0, leave_distance: 2.0} -->
+
         </rosparam>
        
         <param name="slow_zones_enabled" value="true" />
