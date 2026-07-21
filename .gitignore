@@ -1,2 +1,9 @@
 *.bag
 bag/
+stp3/
+*.png
+*.jpg
+.vscode
+.catkin_workspace
+__pycache__
+build/
