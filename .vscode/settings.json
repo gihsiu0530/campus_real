@@ -1,7 +1,0 @@
-{
-    "files.associations": {
-        "deque": "cpp",
-        "vector": "cpp"
-    },
-    "ROS2.distro": "noetic"
-}

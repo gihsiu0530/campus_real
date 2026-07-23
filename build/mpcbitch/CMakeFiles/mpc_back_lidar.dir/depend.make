@@ -1,2 +1,0 @@
-# Empty dependencies file for mpc_back_lidar.
-# This may be replaced when dependencies are built.

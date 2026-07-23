@@ -1,8 +1,0 @@
-prefix=/home/cyc/campus_ws/devel
-
-Name: mpcbitch
-Description: Description of mpcbitch
-Version: 0.0.0
-Cflags: 
-Libs: -L${prefix}/lib 
-Requires: 

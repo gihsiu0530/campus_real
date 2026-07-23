@@ -1,2 +1,0 @@
-carla_msgs:mpc_4state:mpcbitch
--DCATKIN_DEVEL_PREFIX=/home/cyc/campus_ws/devel -DCMAKE_INSTALL_PREFIX=/home/cyc/campus_ws/install -G Unix Makefiles
