@@ -212,6 +212,11 @@
             double lookahead_gain_ = 10.0;
             int look_back_dist_ = 6;
 
+            // Reference path source selection
+            std::string path_source_ = "global";                      // "global" or "planner"
+            std::string global_array_topic_ = "array_topic";          // global_path.cpp source
+            std::string planner_array_topic_ = "/senpai/array_topic"; // realtime_planner source
+
             //linear velocity
             double max_v_ = 0.6;              //最大線速度
             double min_v_ = 0.4;                //最小線速度

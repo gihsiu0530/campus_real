@@ -15,7 +15,15 @@
     <param name="MIN_LOOKAHEAD" value="5.0" />
     <param name="MAX_LOOKAHEAD" value="30.0" />
     <param name="LOOKAHEAD_GAIN" value="13.0" />
-    <param name="LOOK_BACK_DIST" value="4" /> 
+    <param name="LOOK_BACK_DIST" value="4" />
+
+    <!-- Reference path source for mpc_back_test:
+         "global"  -> follow global_path.cpp CSV route on array_topic (default).
+         "planner" -> follow realtime_planner_node.py on /senpai/array_topic.
+         To use "planner": set this to "planner" AND launch realtime_planner_node.py
+         separately (needs GPU + model checkpoint, not a catkin node). global_path
+         can keep running (now publishes to a different topic, so no collision). -->
+    <param name="path_source" value="global" />
 
     <node pkg="mpcbitch" type="mpc_back_test" name="mpc_back_test" output="screen">
         

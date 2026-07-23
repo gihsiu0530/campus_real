@@ -299,6 +299,16 @@ void MPCPlanner_path::initialize() {
   private_nh_.param<double>("LOOKAHEAD_GAIN", lookahead_gain_, 10.0);
   private_nh_.param<int>("LOOK_BACK_DIST", look_back_dist_, 5);
 
+  // Reference path source: "global" (global_path.cpp CSV route) or
+  // "planner" (realtime_planner_node.py inferred path). Both publish the same
+  // std_msgs/Float64MultiArray [x0,y0,x1,y1,...] layout, so switching is just a
+  // topic-name change; setPlan stays identical.
+  private_nh_.param<std::string>("path_source", path_source_, "global");
+  private_nh_.param<std::string>("global_array_topic", global_array_topic_,
+                                 "array_topic");
+  private_nh_.param<std::string>("planner_array_topic", planner_array_topic_,
+                                 "/senpai/array_topic");
+
   private_nh_.setParam("KAPPA_STRAIGHT", kappa_straight_);
   private_nh_.setParam("CTE_ENTER", cte_enter_);
   private_nh_.setParam("EPSI_ENTER", epsi_enter_);
@@ -313,6 +323,10 @@ void MPCPlanner_path::initialize() {
   private_nh_.setParam("MAX_LOOKAHEAD", max_lookahead_);
   private_nh_.setParam("LOOKAHEAD_GAIN", lookahead_gain_);
   private_nh_.setParam("LOOK_BACK_DIST", look_back_dist_);
+
+  private_nh_.setParam("path_source", path_source_);
+  private_nh_.setParam("global_array_topic", global_array_topic_);
+  private_nh_.setParam("planner_array_topic", planner_array_topic_);
 
   ROS_INFO("Data will be saved to: %s", filename_.c_str());
   ROS_INFO("State projection: %s, delay=%.3f sec",
@@ -367,8 +381,12 @@ void MPCPlanner_path::initialize() {
     double controller_frequency = 10;
     d_t_ = 1 / controller_frequency;
 
+    std::string wp_topic =
+        (path_source_ == "planner") ? planner_array_topic_ : global_array_topic_;
     global_path_sub =
-        nh_.subscribe("array_topic", 1000, &MPCPlanner_path::setPlan, this);
+        nh_.subscribe(wp_topic, 1000, &MPCPlanner_path::setPlan, this);
+    ROS_INFO("MPC tracking source = %s (topic: %s)", path_source_.c_str(),
+             wp_topic.c_str());
     car_pose_sub =
         nh_.subscribe("/odom", 1000, &MPCPlanner_path::computelocalpath, this);
 
