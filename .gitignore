@@ -7,4 +7,5 @@ stp3/
 .catkin_workspace
 __pycache__
 build/
+devel/
 path_inference/

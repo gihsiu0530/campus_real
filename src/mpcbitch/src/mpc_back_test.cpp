@@ -955,8 +955,8 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     double current_v = std::abs(vt);
 
     // 2. 定義速度區間 (根據你的車輛極限設定)
-    double v_slow_bound = 1.6; // 低速區間 (m/s) -> 在此速度以下視為低速 2.5 1.2 1.5
-    double v_fast_bound = 2.3; // 高速區間 (m/s) -> 在此速度以上視為高速 2.8 1.4 1.8
+    double v_slow_bound = 1.6; // 低速區間 (m/s) -> 在此速度以下視為低速 1.6
+    double v_fast_bound = 2.3; // 高速區間 (m/s) -> 在此速度以上視為高速 2.3
 
     // 3. 定義門檻區間 (核心設定)
     // 低速時 (Loose)：容忍度高 (0.02)，忽略路徑抖動，利於出彎加速
@@ -1016,7 +1016,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     }
 
     // 6. 終點前 N 點緩降（加速版）
-    int N_end_slow = 20; // 終點前20m降速 //40
+    int N_end_slow = 1; // 終點前20m降速 //40
     int remain_pts = (int)global_path_x.size() - nearestIndex;
     bool endpoint_phase = (remain_pts <= N_end_slow);
     if (endpoint_phase) {

@@ -127,7 +127,7 @@
             double curve_threshold_ = 0.03;      // 曲率閾值，超過這個值時認為是彎道
 
             //linear velocity
-            double max_v_ = 2.5;              //最大線速度
+            double max_v_ = 0.8;              //最大線速度
             double min_v_ = 0.15;                //最小線速度
             double max_v_inc_ = 0.7;          //線速度差值
 

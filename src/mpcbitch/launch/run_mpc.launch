@@ -23,10 +23,13 @@
          To use "planner": set this to "planner" AND launch realtime_planner_node.py
          separately (needs GPU + model checkpoint, not a catkin node). global_path
          can keep running (now publishes to a different topic, so no collision). -->
-    <param name="path_source" value="global" />
 
     <node pkg="mpcbitch" type="mpc_back_test" name="mpc_back_test" output="screen">
-        
+        <!-- Must live inside <node>: the code reads it from the private
+             namespace (~path_source), not the global one. -->
+        <!-- <param name="path_source" value="global" /> -->
+        <param name="path_source" value="planner" />
+
         <!-- Slow zone example:
         x/y are map coordinates. target_speed is the speed near that point (m/s).
         approach_distance starts limiting speed before the point.
