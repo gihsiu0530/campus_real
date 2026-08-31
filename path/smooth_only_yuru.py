@@ -150,5 +150,5 @@ plt.grid(True)
 plt.savefig('selective_smoothing_zoom.png')
 
 print(f"Smoothed {np.sum(mask)} points (raw detected), affected {np.sum(weights > 0.01)} points with blending.")
-print(f"Dense output points: {len(dense_x)} (original smoothed points: {len(x_final)}), spacing=0.5m")
+print(f"Dense output points: {len(dense_x)} (original smoothed points: {len(x_final)}), spacing={target_spacing}m")
 

@@ -1,0 +1,18 @@
+<library path="lib/libvio_rviz_panel">
+  <class
+      name="vio_rviz_panel/ImageDashboardPanel"
+      type="vio_rviz_panel::ImageDashboardPanel"
+      base_class_type="rviz::Panel">
+    <description>
+      Displays the ZED image, semantic segmentation, and trajectory plot in one RViz panel.
+    </description>
+  </class>
+  <class
+      name="vio_rviz_panel/SingleImagePanel"
+      type="vio_rviz_panel::SingleImagePanel"
+      base_class_type="rviz::Panel">
+    <description>
+      A freely dockable image topic panel. Multiple instances can be arranged independently.
+    </description>
+  </class>
+</library>

@@ -1,0 +1,42 @@
+%YAML:1.0
+
+# IMPORTANT:
+# This config uses rectified stereo images + ZED2i built-in IMU.
+#
+# Intrinsics/resolution are from /zed2i/zed_node/left/camera_info.
+# For stereo, the baseline from /zed2i/zed_node/right/camera_info is:
+# baseline = -P[3] / P[0] = 0.119926451232 m.
+#
+# Active config: use optical camera frames to match image_rect_color camera_info.
+# T_imu_cam is camera optical frame -> IMU frame (R_CtoI, p_CinI).
+# The left transform is from tf_echo zed2i_imu_link zed2i_left_camera_optical_frame.
+# The right transform composes the rectified stereo baseline from right CameraInfo.P.
+
+cam0:
+  T_imu_cam:
+    - [-0.004297827506, 0.002442628524, 0.999987781047, 0.002099617915]
+    - [-0.999977797269, -0.005103038830, -0.004285319616, 0.023050811657]
+    - [0.005092509032, -0.999983996152, 0.002464506272, -0.000329505897]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: [1]
+  camera_model: pinhole
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_model: radtan
+  intrinsics: [944.7952270507812, 944.7952270507812, 638.809326171875, 364.79559326171875]
+  resolution: [1280, 720]
+  rostopic: /zed2i/zed_node/left/image_rect_color
+  timeshift_cam_imu: 0.00521
+
+cam1:
+  T_imu_cam:
+    - [-0.004297827506, 0.002442628524, 0.999987781047, 0.001584194714]
+    - [-0.999977797269, -0.005103038830, -0.004285319616, -0.096872976880]
+    - [0.005092509032, -0.999983996152, 0.002464506272, 0.000281220639]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: [0]
+  camera_model: pinhole
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_model: radtan
+  intrinsics: [944.7952270507812, 944.7952270507812, 638.809326171875, 364.79559326171875]
+  resolution: [1280, 720]
+  rostopic: /zed2i/zed_node/right/image_rect_color

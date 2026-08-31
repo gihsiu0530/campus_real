@@ -1,0 +1,386 @@
+Panels:
+  - Class: rviz/Displays
+    Help Height: 0
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Path VIO1
+      Splitter Ratio: 0.6011396050453186
+    Tree Height: 178
+  - Class: rviz/Selection
+    Name: Selection
+  - Class: rviz/Tool Properties
+    Expanded:
+      - /2D Pose Estimate1
+      - /2D Nav Goal1
+      - /Publish Point1
+    Name: Tool Properties
+    Splitter Ratio: 0.5886790156364441
+  - Class: rviz/Views
+    Expanded:
+      - /Current View1
+    Name: Views
+    Splitter Ratio: 0.5
+  - Class: rviz/Time
+    Name: Time
+    SyncMode: 0
+    SyncSource: SLAM Points
+  - Class: vio_rviz_panel/SingleImagePanel
+    DisplayTitle: 相機
+    Name: ZED2i Camera
+    PreferSquare: false
+    Topic: /zed2i/zed_node/left/image_rect_color
+  - Class: vio_rviz_panel/SingleImagePanel
+    DisplayTitle: 語意分割
+    Name: Semantic Segmentation
+    PreferSquare: false
+    Topic: /senpai/seg_cls4_full
+  - Class: vio_rviz_panel/SingleImagePanel
+    DisplayTitle: 軌跡圖
+    Name: Trajectory Plot
+    PreferSquare: true
+    Topic: /senpai/trajectory_plot
+  - Class: vio_rviz_panel/SingleImagePanel
+    DisplayTitle: 行人軌跡
+    Name: Pedestrian Trajectory
+    PreferSquare: false
+    Topic: /pedestrian_trajectory/image
+Preferences:
+  PromptSaveOnExit: true
+Toolbars:
+  toolButtonStyle: 2
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.5
+      Cell Size: 1
+      Class: rviz/Grid
+      Color: 112; 112; 115
+      Enabled: true
+      Line Style:
+        Line Width: 0.029999999329447746
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 80
+      Reference Frame: <Fixed Frame>
+      Value: true
+    - Class: rviz/TF
+      Enabled: true
+      Filter (blacklist): ""
+      Filter (whitelist): ""
+      Frame Timeout: 120
+      Frames:
+        All Enabled: true
+        cam0:
+          Value: true
+        cam1:
+          Value: true
+        global:
+          Value: true
+        imu:
+          Value: true
+      Marker Alpha: 1
+      Marker Scale: 1
+      Name: TF
+      Show Arrows: false
+      Show Axes: true
+      Show Names: true
+      Tree:
+        global:
+          imu:
+            cam0:
+              {}
+            cam1:
+              {}
+      Update Interval: 0
+      Value: true
+    - Class: rviz/Image
+      Enabled: false
+      Image Topic: /ov_msckf/trackhist
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Image Tracks
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: compressed
+      Unreliable: false
+      Value: false
+    - Class: rviz/Image
+      Enabled: false
+      Image Topic: /ov_msckf/loop_depth_colored
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Current Depths
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: compressed
+      Unreliable: false
+      Value: false
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 0; 255; 0
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Billboards
+      Line Width: 1.5
+      Name: Path VIO
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Queue Size: 10
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic: /ov_msckf/pathimu
+      Unreliable: false
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 0; 255; 255
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Billboards
+      Line Width: 0.029999999329447746
+      Name: Path GT
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Queue Size: 10
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic: /ov_msckf/pathgt
+      Unreliable: false
+      Value: true
+    - Alpha: 0.800000011920929
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 252; 175; 62
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: MSCKF Points
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 8
+      Size (m): 0.009999999776482582
+      Style: Points
+      Topic: /ov_msckf/points_msckf
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 255; 0; 0
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: SLAM Points
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 8
+      Size (m): 0.009999999776482582
+      Style: Points
+      Topic: /ov_msckf/points_slam
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 117; 80; 123
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: ARUCO Points
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 15
+      Size (m): 0.009999999776482582
+      Style: Points
+      Topic: /ov_msckf/points_aruco
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud
+      Color: 255; 255; 255
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: ACTIVE Features
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.009999999776482582
+      Style: Points
+      Topic: /ov_msckf/loop_feats
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 255; 255; 127
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: SIM Points
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.009999999776482582
+      Style: Points
+      Topic: /ov_msckf/points_sim
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 44; 44; 44
+    Default Light: true
+    Fixed Frame: global
+    Frame Rate: 60
+  Name: root
+  Tools:
+    - Class: rviz/Interact
+      Hide Inactive Objects: true
+    - Class: rviz/MoveCamera
+    - Class: rviz/Select
+    - Class: rviz/FocusCamera
+    - Class: rviz/Measure
+    - Class: rviz/SetInitialPose
+      Theta std deviation: 0.2617993950843811
+      Topic: /initialpose
+      X std deviation: 0.5
+      Y std deviation: 0.5
+    - Class: rviz/SetGoal
+      Topic: /move_base_simple/goal
+    - Class: rviz/PublishPoint
+      Single click: true
+      Topic: /clicked_point
+  Value: true
+  Views:
+    Current:
+      Angle: -0.009999813511967659
+      Class: rviz/TopDownOrtho
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.009999999776482582
+      Scale: 1.4446555376052856
+      Target Frame: <Fixed Frame>
+      X: 200.80368041992188
+      Y: 197.95913696289062
+    Saved: ~
+Window Geometry:
+  Current Depths:
+    collapsed: false
+  Displays:
+    collapsed: false
+  Height: 1008
+  Hide Left Dock: false
+  Hide Right Dock: false
+  Image Tracks:
+    collapsed: false
+  Pedestrian Trajectory:
+    collapsed: false
+  QMainWindow State: 000000ff00000000fd0000000100000000000001a400000352fc020000000bfb000000100044006900730070006c0061007900730000000000ffffffff0000006700fffffffb0000001200530065006c0065006300740069006f006e0000000000ffffffff0000006700fffffffb0000001e0054006f006f006c002000500072006f00700065007200740069006500730000000000ffffffff0000006700fffffffb0000000a005600690065007700730000000000ffffffff0000006700fffffffb0000000800540069006d00650000000000ffffffff0000006700fffffffb000000180049006d00610067006500200054007200610063006b00730000000000ffffffff0000006700fffffffb0000001c00430075007200720065006e007400200044006500700074006800730000000000ffffffff0000006700fffffffb00000018005a0045004400320069002000430061006d0065007200610100000000000000cd0000006700fffffffb0000002a00530065006d0061006e0074006900630020005300650067006d0065006e0074006100740069006f006e01000000d3000000cd0000006700fffffffb0000001e005400720061006a006500630074006f0072007900200050006c006f007401000001a6000000d90000006700fffffffb0000002a005000650064006500730074007200690061006e0020005400720061006a006500630074006f007200790100000285000000cd0000006700ffffff0000057e0000035200000004000000040000000800000008fc00000000
+  Selection:
+    collapsed: false
+  Semantic Segmentation:
+    collapsed: false
+  Time:
+    collapsed: false
+  Tool Properties:
+    collapsed: false
+  Trajectory Plot:
+    collapsed: false
+  Views:
+    collapsed: true
+  Width: 1832
+  X: 88
+  Y: 35
+  ZED2i Camera:
+    collapsed: false

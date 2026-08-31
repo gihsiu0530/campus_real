@@ -1,0 +1,53 @@
+%YAML:1.0
+
+# ZED2i rectified stereo + 600 Hz external IMU.
+#
+# Left camera rotation and time offset are from:
+#   /home/cyc/open_vins/data/imu_ms/mono_imu/stereo_imu2_calib1-camchain-imucam.yaml
+#
+# Translation is from hand measurement:
+#   camera center in IMU frame = [forward 1.42, right -0.02, down -0.35] m.
+# The /left optical center uses y=-0.08 m based on the better baseline-sign test.
+# The /right optical center is derived from the ZED rectified stereo baseline:
+#   p_C1inI = p_C0inI + 0.119926451232 * R_C0toI * [1, 0, 0].
+#
+# The VIO input uses ZED rectified image_rect_color topics, so intrinsics are
+# from the rectified ZED CameraInfo and distortion is zero.
+#
+# Test variant:
+#   R_CtoI_new = Rz_IMU(+15.6 deg) * R_CtoI_original
+# This keeps the measured left camera center fixed in the IMU frame, and
+# recomputes the right camera center from the rectified stereo baseline.
+
+cam0:
+  T_imu_cam:
+    - [-0.074902169556, 0.005823576767, 0.997173882004, 1.42]  #1.42
+    - [0.997181603458, -0.003877497936, 0.074925394453, -0.08]#-0.08
+    - [0.004302873456, 0.999975525182, -0.005516730611, -0.35]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: [1]
+  camera_model: pinhole
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_model: radtan
+  intrinsics: [944.7789916992188, 944.7789916992188, 638.8094482421875, 364.79559326171875]
+  resolution: [1280, 720]
+  rostopic: /zed2i/zed_node/left/image_rect_color
+  # timeshift_cam_imu: 0.042251129395942416
+  timeshift_cam_imu: 0.02124
+
+
+cam1:
+  T_imu_cam:
+    - [-0.074902169556, 0.005823576767, 0.997173882004, 1.411017248616]
+    - [0.997181603458, -0.003877497936, 0.074925394453, 0.039588450937]
+    - [0.004302873456, 0.999975525182, -0.005516730611, -0.349483971656]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: [0]
+  camera_model: pinhole
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_model: radtan
+  intrinsics: [944.7789916992188, 944.7789916992188, 638.8094482421875, 364.79559326171875]
+  resolution: [1280, 720]
+  rostopic: /zed2i/zed_node/right/image_rect_color
+  # timeshift_cam_imu: 0.042251129395942416
+  timeshift_cam_imu: 0.02124

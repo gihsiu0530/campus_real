@@ -1,0 +1,40 @@
+%YAML:1.0
+
+imu0:
+  T_i_b:
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
+
+  # From /home/cyc/open_vins/data/imu_ms/mono_imu/stereo_imu2_calib1-imu.yaml.
+  accelerometer_noise_density: 0.05
+  accelerometer_random_walk: 0.0005
+  gyroscope_noise_density: 0.005
+  gyroscope_random_walk: 0.00005
+
+  rostopic: /external_imu/data
+  time_offset: 0.0
+  update_rate: 600.0
+  model: "calibrated"
+
+  Tw:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  R_IMUtoGYRO:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  Ta:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  R_IMUtoACC:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  Tg:
+    - [0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0]

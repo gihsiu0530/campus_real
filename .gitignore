@@ -9,3 +9,4 @@ __pycache__
 build/
 devel/
 path_inference/
+*.mp4

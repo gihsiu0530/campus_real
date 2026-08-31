@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>vio_rviz_panel</name>
+  <version>0.1.0</version>
+  <description>RViz image dashboard panel for the OpenVINS workspace.</description>
+
+  <maintainer email="cyc@example.com">cyc</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>cv_bridge</depend>
+  <depend>image_transport</depend>
+  <depend>roscpp</depend>
+  <depend>rviz</depend>
+  <depend>sensor_msgs</depend>
+  <exec_depend>ov_msckf</exec_depend>
+
+  <export>
+    <rviz plugin="${prefix}/plugin_description.xml"/>
+  </export>
+</package>

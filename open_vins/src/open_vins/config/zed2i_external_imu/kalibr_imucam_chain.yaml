@@ -1,0 +1,49 @@
+%YAML:1.0
+
+# ZED2i stereo + external IMU.
+#
+# cam0 is from:
+#   /home/cyc/kalibr_data/1/zed2i_stereo_external_imu_debug-camchain-imucam.yaml
+# Kalibr reported:
+#   T_cam_imu, timeshift_cam_imu = 0.026781979251498257
+#
+# OpenVINS official configs prefer T_imu_cam:
+#   rotation from camera to IMU R_CtoI, position of camera in IMU p_CinI.
+#
+# Translation is manually corrected from the measured external IMU placement:
+#   IMU in cam0 optical frame p_IinC0 = [right 0.18, down 0.39, forward -1.75] m.
+#   This file stores p_CinI in T_imu_cam, so p_CinI = -R_CtoI * p_IinC.
+#
+# cam1 translation is derived from the rectified stereo baseline:
+#   baseline = -right_camera_info.P[3] / right_camera_info.P[0]
+#            = 0.119926451232 m
+
+cam0:
+  T_imu_cam:
+    - [0.999422862746, -0.021907483544, 0.025961579011, -0.125919433443]
+    - [-0.025806144688, 0.007348208913, 0.999639958546, 1.751149232023]
+    - [-0.022090367048, -0.999732997350, 0.006778620298, 0.405734720557]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: [1]
+  camera_model: pinhole
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_model: radtan
+  intrinsics: [944.7789916992188, 944.7789916992188, 638.8094482421875, 364.79559326171875]
+  resolution: [1280, 720]
+  rostopic: /zed2i/zed_node/left/image_rect_color
+  timeshift_cam_imu: 0.026781979251498257
+
+cam1:
+  T_imu_cam:
+    - [0.999422862746, -0.021907483544, 0.025961579011, -0.006062196234]
+    - [-0.025806144688, 0.007348208913, 0.999639958546, 1.748054392671]
+    - [-0.022090367048, -0.999732997350, 0.006778620298, 0.403085501230]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: [0]
+  camera_model: pinhole
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_model: radtan
+  intrinsics: [944.7789916992188, 944.7789916992188, 638.8094482421875, 364.79559326171875]
+  resolution: [1280, 720]
+  rostopic: /zed2i/zed_node/right/image_rect_color
+  timeshift_cam_imu: 0.026781979251498257

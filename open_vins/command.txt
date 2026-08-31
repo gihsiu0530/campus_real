@@ -1,0 +1,48 @@
+source devel/setup.bash
+roscore
+
+
+定位結果：/ov_msckf/poseimu
+
+# 內建 ZED2i IMU 版本
+cd ~/open_vins_P
+source devel/setup.bash
+rospack find ov_msckf
+roslaunch ov_msckf subscribe.launch config:=zed2i max_cameras:=2 use_stereo:=true dolivetraj:=false dosave:=true path_est:=/home/cyc/open_vins_P/vio_estimate_zed2i_builtin_imu.csv
+
+
+
+# RViz
+cd ~/open_vins
+source devel/setup.bash
+rviz -d $(rospack find ov_msckf)/launch/display.rviz
+
+
+# 播 bag
+source devel/setup.bash
+rosbag play --clock /path/to/your_zed2i.bag
+
+
+
+cyc@cyc-System-Product-Name:~/stp3/stp3_copy$ python3 seg_real_time.py
+rosbag record /odom /depth_224 /image_224 /seg_cls4_224 /ov_msckf/poseimu
+
+
+
+open_ins_P
+source devel/setup.bash
+rospack find ov_msckf
+roslaunch ov_msckf subscribe.launch config:=zed2i max_cameras:=2 use_stereo:=true dolivetraj:=false dosave:=true path_est:=/home/cyc/open_vins_P/vio_estimate_zed2i_builtin_imu.csv
+
+
+/zed2i/zed_node/left/image_rect_color    # sensor_msgs/Image
+/zed2i/zed_node/right/image_rect_color   # sensor_msgs/Image
+/zed2i/zed_node/imu/data_raw             # sensor_msgs/Imu
+
+
+rosbag record /odom /zed2i/zed_node/left/image_rect_color /zed2i/zed_node/right/image_rect_color /zed2i/zed_node/imu/data_raw 
+
+rosbag record /Inertial_Labs/gnss_data /Inertial_Labs/gps_data /Inertial_Labs/ins_data /Inertial_Labs/marine_data /Inertial_Labs/sensor_data /battery_bdi /clicked_point /cmd_vel /current /keyswitch_volt /motion_array /motor_current_rms /motor_rpm /motor_temp /rosout /rosout_agg /soc /steering_sensor /stop_signal /temperature /throttle_pot /v_real /voltage
+
+
+/ov_msckf/poseimu   定位topic

@@ -189,8 +189,8 @@
             bool use_state_projection_ = true;
             double state_projection_delay_ = 0.4;  // seconds
 
-            double min_v_forward_ = 1;   // 前進最小速度 1      0.5
-            double max_v_forward_ = 2.5;   // 前進最大速度 2.5    0.8
+            double min_v_forward_ = 1.0;   // 前進最小速度 1      0.5
+            double max_v_forward_ = 1.0;   // 前進最大速度 2.5    0.8
             double min_v_reverse_ = 0.22;   // 倒退最小速度（較慢）
             double max_v_reverse_ = 0.40;   // 倒退最大速度（較小）
             
@@ -216,6 +216,16 @@
             std::string path_source_ = "global";                      // "global" or "planner"
             std::string global_array_topic_ = "array_topic";          // global_path.cpp source
             std::string planner_array_topic_ = "/senpai/array_topic"; // realtime_planner source
+
+            // Planner-source path handling. The planner republishes a whole new
+            // 7-point / 3 s path every 0.5 s, so index-based end-of-route logic
+            // and cross-path index latching (both written for the static 718-point
+            // CSV route) do not apply. Cached once in initialize() so the string
+            // compare stays out of the control loop.
+            bool planner_mode_ = false;
+            double last_plan_stamp_ = -1.0; // ros::Time::now() of the last setPlan, <0 = none yet
+            double plan_timeout_ = 1.5;     // seconds without a new path before stopping
+            bool plan_timed_out_ = false;   // latched so the warning logs once per outage
 
             //linear velocity
             double max_v_ = 0.6;              //最大線速度

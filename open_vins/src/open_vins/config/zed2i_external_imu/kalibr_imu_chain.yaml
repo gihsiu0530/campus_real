@@ -1,0 +1,42 @@
+%YAML:1.0
+
+imu0:
+  T_i_b:
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
+
+  # From /home/cyc/kalibr_data/1/zed2i_stereo_external_imu_debug-imu.yaml.
+  accelerometer_noise_density: 0.05
+  accelerometer_random_walk: 0.0005
+  gyroscope_noise_density: 0.005
+  gyroscope_random_walk: 0.00005
+
+  # rostopic: /external_imu/data
+  rostopic: /gps_imu/data
+
+  time_offset: 0.0
+  update_rate: 80.0
+  model: "calibrated"
+
+  Tw:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  R_IMUtoGYRO:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  Ta:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  R_IMUtoACC:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  Tg:
+    - [0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0]

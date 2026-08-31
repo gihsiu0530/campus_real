@@ -11,7 +11,17 @@
     <param name="KAPPA_LOW_SPEED_THRESH" value="0.18" />
     <param name="KAPPA_LOW_SPEED" value="5.0" />
 
-    <!-- Speed planning lookahead/lookback parameters -->
+    <!-- Speed planning lookahead/lookback parameters. Units are path POINTS,
+         not metres: on the 0.7 m-spaced CSV route (path/smooth_only_yuru.py
+         resamples at target_spacing = 0.7) 10 points is 7 m.
+
+         WARNING: MIN_LOOKAHEAD / MAX_LOOKAHEAD / LOOKAHEAD_GAIN are read into
+         members but mpc_back_test.cpp then computes look_ahead_dist from
+         hardcoded locals (10.0 / 30.0 / 10.0), so changing them here has NO
+         effect. Left unwired on purpose: connecting them would alter the
+         "global" source's speed planning, which is the validated baseline.
+         Only LOOK_BACK_DIST is actually used. -->
+         
     <param name="MIN_LOOKAHEAD" value="5.0" />
     <param name="MAX_LOOKAHEAD" value="30.0" />
     <param name="LOOKAHEAD_GAIN" value="13.0" />
@@ -30,11 +40,18 @@
         <!-- <param name="path_source" value="global" /> -->
         <param name="path_source" value="planner" />
 
+        <!-- planner source only: seconds without a new path before the MPC
+             commands a stop (v_ref = 0, steering held). The planner
+             republishes every 0.5 s, so this is 3 missed inference cycles.
+             Inside <node> for the same reason as path_source above. -->
+        <param name="PLAN_TIMEOUT" value="1.5" />
+
         <!-- Slow zone example:
         x/y are map coordinates. target_speed is the speed near that point (m/s).
         approach_distance starts limiting speed before the point.
         leave_distance keeps the low speed briefly after passing the point. -->
         <rosparam param="slow_zones">
+        <!-- for campus demo, use the following slow zones: -->
           <!-- - {x: 299.51, y: 100.23, target_speed: 1.0, radius: 1.2, approach_distance: 6.0, leave_distance: 2.0}
           - {x: 68.64, y:  -60.58, target_speed: 1.0, radius: 1.2, approach_distance: 6.0, leave_distance: 2.0}
           - {x: 130.01, y:  155.76, target_speed: 1.0, radius: 1.2, approach_distance: 6.0, leave_distance: 2.0} -->

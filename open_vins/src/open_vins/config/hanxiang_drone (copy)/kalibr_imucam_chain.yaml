@@ -1,0 +1,29 @@
+%YAML:1.0
+
+# Monocular UAV camera config for /image_raw.
+#
+# TODO before real VIO:
+# - Confirm whether /image_raw is raw or rectified.
+# - T_imu_cam below is an approximate hand measurement, not calibration.
+#   Assumptions:
+#   * camera frame is ROS optical: x right, y down, z forward
+#   * IMU/body frame is /mavros/imu/data frame_id base_link: x forward, y left, z up
+#   * IMU is 0.23 m directly above the camera
+#   * camera optical axis is pitched about 45 degrees downward from the IMU/body forward axis
+# - timeshift_cam_imu is fixed from the first OpenVINS online estimate.
+#   Recalibrate this if camera/IMU timestamps change.
+
+cam0:
+  T_imu_cam:
+    - [0.0, -0.707106781187, 0.707106781187, 0.0]
+    - [-1.0, 0.0, 0.0, 0.0]
+    - [0.0, -0.707106781187, -0.707106781187, -0.23]
+    - [0.0, 0.0, 0.0, 1.0]
+  cam_overlaps: []
+  camera_model: pinhole
+  distortion_coeffs: [-0.151211, 0.061706, 0.009091, -0.014840]
+  distortion_model: radtan
+  intrinsics: [1096.93103, 1091.43409, 980.85796, 683.50227]
+  resolution: [1920, 1080]
+  rostopic: /image_raw
+  timeshift_cam_imu: -0.01785

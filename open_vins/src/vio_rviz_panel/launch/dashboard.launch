@@ -1,0 +1,10 @@
+<launch>
+  <arg name="rviz_config" default="$(find ov_msckf)/launch/display.rviz"/>
+
+  <node pkg="rviz"
+        type="rviz"
+        name="vio_dashboard"
+        args="-d $(arg rviz_config)"
+        output="screen"
+        required="true"/>
+</launch>

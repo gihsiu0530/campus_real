@@ -1,0 +1,43 @@
+%YAML:1.0
+
+imu0:
+  T_i_b:
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
+
+  # Initial generic values for ZED2i-style MEMS IMU.
+  # Replace with Kalibr Allan variance values when available.
+  accelerometer_noise_density: 2.0000e-3
+  accelerometer_random_walk: 3.0000e-3
+  gyroscope_noise_density: 1.7000e-4
+  gyroscope_random_walk: 2.0000e-5
+
+  # OpenVINS only uses angular_velocity and linear_acceleration.
+  # Use raw IMU first; do not use ZED odom/pose as VIO input.
+  rostopic: /zed2i/zed_node/imu/data_raw
+  time_offset: 0.0
+  update_rate: 200.0
+  model: "kalibr"
+
+  Tw:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  R_IMUtoGYRO:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  Ta:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  R_IMUtoACC:
+    - [1.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0]
+    - [0.0, 0.0, 1.0]
+  Tg:
+    - [0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0]
+    - [0.0, 0.0, 0.0]
