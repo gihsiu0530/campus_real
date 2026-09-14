@@ -13,6 +13,7 @@
 #include <fstream>
 #include <geometry_msgs/PointStamped.h>
 #include <iostream>
+#include <ros/package.h>
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <ros/ros.h>
@@ -145,8 +146,12 @@ void MPCPlanner_path::initialize() {
   Eigen::Vector2d u_prev;
   u_prev = Eigen::Vector2d(min_v_, 0);
 
-  private_nh_.param<std::string>("save_filename", filename_,
-                                 "/home/gihsiu0530/mpc/mpcdata/simulation.csv");
+  std::string pkg_path = ros::package::getPath("mpcbitch");
+
+  std::string default_path = pkg_path + "/../../mpcdata/simulation.csv";
+
+  private_nh_.param<std::string>("save_filename", filename_, default_path);
+
   private_nh_.param<double>("latency_compensation_sec",
                             latency_compensation_sec, latency_compensation_sec);
   ROS_INFO("Data will be saved to: %s", filename_.c_str());
