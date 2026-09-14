@@ -1,4 +1,4 @@
-#include "mpcbitch/mpc_final.h" 測試
+#include "mpcbitch/mpc_final.h" 
 #include <OsqpEigen/OsqpEigen.h>
 #include <algorithm>
 #include <carla_msgs/CarlaEgoVehicleControl.h>
