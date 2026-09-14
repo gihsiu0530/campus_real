@@ -217,6 +217,12 @@
             std::string global_array_topic_ = "array_topic";          // global_path.cpp source
             std::string planner_array_topic_ = "/senpai/array_topic"; // realtime_planner source
 
+            // Localization source selection. Both topics carry nav_msgs/Odometry
+            // for the same vehicle point; "vio" is only valid with the planner source.
+            std::string localization_source_ = "lidar";   // "lidar" or "vio"
+            std::string lidar_odom_topic_ = "/odom";      // LiDAR localization
+            std::string vio_odom_topic_ = "/vio_odom";    // vio_pose_to_odom.py output
+
             // Planner-source path handling. The planner republishes a whole new
             // 7-point / 3 s path every 0.5 s, so index-based end-of-route logic
             // and cross-path index latching (both written for the static 718-point
