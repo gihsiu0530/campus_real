@@ -3,15 +3,6 @@
          roslaunch mpcbitch run_mpc.launch localization_source:=vio -->
     <arg name="localization_source" default="lidar" />
 
-    <!-- vio only: relay /ov_msckf/poseimu as nav_msgs/Odometry on /vio_odom.
-         The planner waits ("waiting for VIO pose") until this is up, so it can
-         be started before this launch file. -->
-    <node if="$(eval localization_source == 'vio')"
-          pkg="mpcbitch" type="vio_pose_to_odom.py" name="vio_pose_to_odom" output="screen">
-        <param name="input_topic" value="/ov_msckf/poseimu" />
-        <param name="output_topic" value="/vio_odom" />
-    </node>
-
     <!-- <node pkg="mpc_4state" type="global_path" name="global_path" output="screen" /> -->
     <param name="CTE_ENTER" value="0.02" />    //0.02
     <param name="CTE_EXIT" value="0.035" />     //0.035
@@ -61,9 +52,10 @@
 
         <!-- Pose source for the MPC. "vio" requires path_source=planner (the
              CSV route is in the LiDAR map frame; otherwise the node logs an
-             ERROR and falls back to lidar). vio_pose_to_odom.py is started
-             above; run realtime_planner_node_ff_VIO.py (anchors its path on
-             /vio_odom) separately.
+             ERROR and falls back to lidar). Start separately, e.g. via
+             soturon.sh: rosrun mpcbitch vio_pose_to_odom.py (publishes
+             /vio_odom) and realtime_planner_node_ff_VIO.py (anchors its path
+             on /vio_odom).
              Inside <node> for the same reason as path_source above. -->
         <param name="localization_source" value="$(arg localization_source)" />
 
