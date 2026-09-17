@@ -16,7 +16,6 @@ find_package(catkin REQUIRED COMPONENTS
   carla_msgs
 )
 
-include_directories(/usr/include/eigen3) 
 find_package(OpenCV REQUIRED)
 
 ## System dependencies are found with CMake's conventions
@@ -128,10 +127,10 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
+  ${PROJECT_SOURCE_DIR}/include
   ${catkin_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}       # 加入 OpenCV include 目錄
-  /home/cyc/new_golf/mpc/src/mpcbitch/include
+  /usr/include/eigen3
 )
 
 ## Declare a C++ library
@@ -219,7 +218,6 @@ include_directories(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-include_directories(/home/cyc/campus_ws/src/mpcbitch/include)
 add_executable(mpc_new src/mpc_new.cpp )
 target_link_libraries(mpc_new ${catkin_LIBRARIES} osqp OsqpEigen)
 
