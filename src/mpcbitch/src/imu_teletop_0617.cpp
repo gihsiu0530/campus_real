@@ -1,4 +1,5 @@
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <std_msgs/UInt8.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <sensor_msgs/Imu.h>
@@ -171,7 +172,7 @@ TeleopKeyboard::TeleopKeyboard() :
     last_imu_time_(0),
     last_motion_time_(0)
 {
-    private_nh_.param<std::string>("save_filename", filename_, "/home/systemlabagx/disk/0617_test.csv");
+    private_nh_.param<std::string>("save_filename", filename_, ros::package::getPath("mpcbitch") + "/../../mpcdata/0617_test.csv");
     cmd_pub_ = nh_.advertise<std_msgs::UInt8>("cmd_vel", 10);
     imu_pub_ = nh_.advertise<sensor_msgs::Imu>("processed_imu", 10);
     imu_float_pub_ = nh_.advertise<std_msgs::Float32MultiArray>("processed_imu_float", 10);

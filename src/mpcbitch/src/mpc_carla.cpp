@@ -1,5 +1,6 @@
 #include <iostream>
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <vector>
 #include <std_msgs/Float64MultiArray.h>
 #include <std_msgs/Bool.h>
@@ -274,7 +275,7 @@ double MPCPlanner_path::anglarRegularization(nav_msgs::Odometry& base_odometry,d
         Eigen::Vector2d u_prev;
         u_prev = Eigen::Vector2d(min_v_, 0);
 
-        private_nh_.param<std::string>("save_filename", filename_, "/home/cyc/new_golf/src/mpc/mpcdata/simulation.csv");
+        private_nh_.param<std::string>("save_filename", filename_, ros::package::getPath("mpcbitch") + "/../../mpcdata/simulation.csv");
         ROS_INFO("Data will be saved to: %s", filename_.c_str());
 
         ROS_INFO("MPC Planner initialized START");

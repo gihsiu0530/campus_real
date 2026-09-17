@@ -1,5 +1,6 @@
 #include <iostream>
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <vector>
 #include <std_msgs/Float64MultiArray.h>
 #include <geometry_msgs/PoseStamped.h>
@@ -335,7 +336,7 @@ double MPCPlanner_path::anglarRegularization(nav_msgs::Odometry& base_odometry,d
     void MPCPlanner_path::initialize()
     {
         caculate_mpc_start = ros::Time::now().toSec();
-        private_nh_.param<std::string>("save_filename", filename_, "/home/king/mpc/mpcdata/change.csv");
+        private_nh_.param<std::string>("save_filename", filename_, ros::package::getPath("mpc_4state") + "/../../mpcdata/change.csv");
         ROS_INFO("Data will be saved to: %s", filename_.c_str());
 
         ROS_INFO("MPC Planner initialized START");

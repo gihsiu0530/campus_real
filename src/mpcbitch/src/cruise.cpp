@@ -13,6 +13,7 @@
 #include <QIcon>
 #include <QTransform>
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <rviz/render_panel.h>
 #include <rviz/visualization_manager.h>
 #include <rviz/view_manager.h>
@@ -366,7 +367,7 @@ public:
         QHBoxLayout* batteryLayout = new QHBoxLayout(batteryWidget);
         batteryButton = new QPushButton(this);
         // 設定預設 icon (依電量狀態可動態更新)
-        QPixmap pix("/home/king/Downloads/100.jpg");
+        QPixmap pix(QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/100.jpg"));
         QPixmap rotatedPixmap = pix.transformed(QTransform().rotate(90));
         batteryButton->setIcon(QIcon(rotatedPixmap));
         batteryButton->setIconSize(QSize(100, 100));
@@ -448,37 +449,37 @@ public Q_SLOTS:
     void updateBatteryStatus(int percentage) {
         batteryPercentageLabel->setText(QString::number(percentage) + "%");
         if (percentage >= 90) {
-            QPixmap pix("/home/king/Downloads/100.jpg");
+            QPixmap pix(QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/100.jpg"));
             QPixmap rotatedPixmap = pix.transformed(QTransform().rotate(90));
             batteryButton->setIcon(QIcon(rotatedPixmap));
             batteryButton->setIconSize(QSize(100, 100));
             batteryButton->setFlat(true);
         } else if (percentage >= 70 && percentage < 90) {
-            QPixmap pix("/home/king/Downloads/80.jpg");
+            QPixmap pix(QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/80.jpg"));
             QPixmap rotatedPixmap = pix.transformed(QTransform().rotate(90));
             batteryButton->setIcon(QIcon(rotatedPixmap));
             batteryButton->setIconSize(QSize(100, 100));
             batteryButton->setFlat(true);
         } else if (percentage >= 50 && percentage < 70) {
-            QPixmap pix("/home/king/Downloads/60.jpg");
+            QPixmap pix(QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/60.jpg"));
             QPixmap rotatedPixmap = pix.transformed(QTransform().rotate(90));
             batteryButton->setIcon(QIcon(rotatedPixmap));
             batteryButton->setIconSize(QSize(100, 100));
             batteryButton->setFlat(true);
         } else if (percentage >= 30 && percentage < 50) {
-            QPixmap pix("/home/king/Downloads/40.jpg");
+            QPixmap pix(QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/40.jpg"));
             QPixmap rotatedPixmap = pix.transformed(QTransform().rotate(90));
             batteryButton->setIcon(QIcon(rotatedPixmap));
             batteryButton->setIconSize(QSize(100, 100));
             batteryButton->setFlat(true);
         } else if (percentage >= 10 && percentage < 30) {
-            QPixmap pix("/home/king/Downloads/20.jpg");
+            QPixmap pix(QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/20.jpg"));
             QPixmap rotatedPixmap = pix.transformed(QTransform().rotate(90));
             batteryButton->setIcon(QIcon(rotatedPixmap));
             batteryButton->setIconSize(QSize(100, 100));
             batteryButton->setFlat(true);
         } else {
-            QPixmap pix("/home/king/Downloads/0.jpg");
+            QPixmap pix(QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/0.jpg"));
             QPixmap rotatedPixmap = pix.transformed(QTransform().rotate(90));
             batteryButton->setIcon(QIcon(rotatedPixmap));
             batteryButton->setIconSize(QSize(100, 100));

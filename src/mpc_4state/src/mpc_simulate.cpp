@@ -1,4 +1,5 @@
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <std_msgs/Bool.h>  // 引入 Bool 訊息類型
 #include <nav_msgs/Odometry.h>
@@ -100,9 +101,13 @@ int main(int argc, char** argv)
     ros::Subscriber turn_sub = nh.subscribe("turn_index", 10, turnIndexCallback);
     ros::Subscriber start_id_sub = nh.subscribe("/start_id", 10, startidCallback);
 
-    std::ofstream csv_file("/home/cyc/campus_ws/mirror_positions.csv");
+    // Output resolved relative to the workspace root; override with ~mirror_csv_file
+    std::string default_mirror_csv = ros::package::getPath("mpc_4state") + "/../../mirror_positions.csv";
+    std::string mirror_csv_file;
+    ros::NodeHandle("~").param<std::string>("mirror_csv_file", mirror_csv_file, default_mirror_csv);
+    std::ofstream csv_file(mirror_csv_file.c_str());
     if (!csv_file.is_open()) {
-        ROS_ERROR("無法打開 mirror_positions.csv 進行寫入！");
+        ROS_ERROR("無法打開 %s 進行寫入！", mirror_csv_file.c_str());
         return 1;
     }
 
@@ -186,7 +191,7 @@ int main(int argc, char** argv)
         marker.action = visualization_msgs::Marker::ADD;
 
         marker.scale.x = marker.scale.y = marker.scale.z = 1.0;
-        marker.mesh_resource = "file:///home/cyc/golf.stl";
+        marker.mesh_resource = "file://" + ros::package::getPath("mpc_4state") + "/../../model/golf.stl";
         marker.mesh_use_embedded_materials = true;
 
         //int turn_index_ = 100000;//43 //112 //65 // 61 //47 //33

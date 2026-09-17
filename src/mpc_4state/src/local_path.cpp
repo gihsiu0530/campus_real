@@ -1,4 +1,5 @@
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <math.h>
 #include <tf/tf.h>
 #include <iostream>
@@ -40,7 +41,7 @@ class MPCWaypointGenerator
         astar_local_show = nh_.advertise<visualization_msgs::MarkerArray>("/astar_local",1);
 
         //csv//
-        private_nh_.param<std::string>("save_filename",filename,std::string("/home/king/mpc/mpcdata/local.csv")); //存成csv檔，默認filename_為"waypoint.csv"，發布話題名稱為/waypoint_saver/save_filename
+        private_nh_.param<std::string>("save_filename",filename,std::string(ros::package::getPath("mpc_4state") + "/../../mpcdata/local.csv")); //存成csv檔，默認filename_為"waypoint.csv"，發布話題名稱為/waypoint_saver/save_filename
 
 
     };

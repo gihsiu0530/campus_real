@@ -9,6 +9,7 @@ project(mpc_4state)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   roscpp
+  roslib
   rospy
   std_msgs
   visualization_msgs

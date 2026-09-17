@@ -16,6 +16,7 @@
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <std_msgs/Bool.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/Float64MultiArray.h>
@@ -280,7 +281,7 @@ void MPCPlanner_path::initialize() {
   u_prev = Eigen::Vector2d(min_v_, 0);
 
   private_nh_.param<std::string>("save_filename", filename_,
-                                 "/home/cyc/campus_ws/mpcdata/real.csv");
+                                 ros::package::getPath("mpcbitch") + "/../../mpcdata/real.csv");
   private_nh_.param("use_state_projection", use_state_projection_,
                     true); // false 關閉
   private_nh_.param("state_projection_delay", state_projection_delay_, 0.5);

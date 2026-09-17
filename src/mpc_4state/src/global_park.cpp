@@ -5,6 +5,7 @@
 #include <string>
 #include <cstdlib> // 用於 std::getenv
 #include <cmath>
+#include <ros/package.h>
 
 struct Point {
     double x;
@@ -13,7 +14,7 @@ struct Point {
 
 int main() {
     // 1. 設定檔案路徑
-    std::string inputFileName = "/home/cyc/20260123v2.csv";
+    std::string inputFileName = ros::package::getPath("mpc_4state") + "/../../path/20260123v2.csv";
     
     // 獲取 HOME 目錄路徑
     const char* homeDir = std::getenv("HOME");

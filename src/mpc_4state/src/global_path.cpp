@@ -8,6 +8,7 @@
 
 // ROS Core
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <tf/tf.h>
 
 // ROS Messages
@@ -73,10 +74,14 @@ int main (int argc, char** argv)
     // std::ifstream inFile("/home/cyc/campus_ws/src/mpc_4state/src/transformed_points.csv",std::ios::in);
     // std::ifstream inFile("/home/cyc/campus_ws/src/mpc_4state/src/gymclockwise.csv",std::ios::in);  
     // std::ifstream inFile("/home/cyc/campus_ws/path/smoothed/gymclockwise.csv",std::ios::in); 
-    std::ifstream inFile("/home/cyc/campus_ws/path/smoothed/back_garden_07new.csv",std::ios::in); 
+    // Default route resolved relative to the workspace root; override with ~path_file
+    std::string default_path_file = ros::package::getPath("mpc_4state") + "/../../path/smoothed/back_garden_07new.csv";
+    std::string path_file;
+    ros::NodeHandle("~").param<std::string>("path_file", path_file, default_path_file);
+    std::ifstream inFile(path_file.c_str(),std::ios::in); 
 
     if(inFile.fail()){
-        ROS_ERROR("Failed to read waypoint.csv ");
+        ROS_ERROR("Failed to read waypoint csv: %s", path_file.c_str());
         return 1;
     }
     

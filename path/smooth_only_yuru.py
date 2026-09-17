@@ -1,10 +1,13 @@
+import os
 import pandas as pd
 import numpy as np
 from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Load data
-df = pd.read_csv('/home/cyc/campus_ws/path/backgarden.csv')
+df = pd.read_csv(os.path.join(SCRIPT_DIR, 'backgarden.csv'))
 original_x = df['x'].values
 original_y = df['y'].values
 
@@ -117,7 +120,7 @@ df_dense = pd.DataFrame({
     'x': dense_x,
     'y': dense_y
 })
-df_dense.to_csv('/home/cyc/campus_ws/path/smoothed/backgarden_new.csv', index=False)
+df_dense.to_csv(os.path.join(SCRIPT_DIR, 'smoothed', 'backgarden_new.csv'), index=False)
 
 # Find segments where weights > 0.1
 changed_indices = np.where(weights > 0.1)[0]

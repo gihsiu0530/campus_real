@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -33,8 +34,10 @@ def transform_trajectory(df, dx=0, dy=0, angle_deg=0, center=(0, 0)):
     
     return pd.DataFrame({'x': x_new, 'y': y_new})
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # 1. 讀取原始資料
-df_original = pd.read_csv('/home/cyc/campus_ws/src/mpc_4state/src/transformed_points.csv')
+df_original = pd.read_csv(os.path.join(SCRIPT_DIR, 'transformed_points.csv'))
 
 # 2. 設定變換參數 (例如: 以第一點為中心旋轉 45 度，並平移 x+10, y+10)
 start_point = (df_original['x'].iloc[0], df_original['y'].iloc[0])
@@ -47,7 +50,7 @@ df_transformed = transform_trajectory(
 )
 
 # 3. 儲存結果
-df_transformed.to_csv('/home/cyc/campus_ws/src/mpc_4state/src/transformed_points2.csv', index=False)
+df_transformed.to_csv(os.path.join(SCRIPT_DIR, 'transformed_points2.csv'), index=False)
 
 # # 4. 繪製圖表展示
 # plt.figure(figsize=(10, 6))

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import rospy
+import rospkg
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')  # Background plotting mode to avoid errors in non-GUI environments
@@ -14,8 +15,10 @@ def generate_plot():
     time.sleep(1.0)
     
     # The path must be consistent with the C++ code
-    csv_file = "/home/cyc/campus_ws/mpcdata/simulation.csv"
-    img_file = "/home/cyc/campus_ws/mpcdata/cte_sim.png"
+    # Resolved relative to the workspace root; override with ~csv_file / ~img_file
+    data_dir = os.path.normpath(os.path.join(rospkg.RosPack().get_path('mpcbitch'), '..', '..', 'mpcdata'))
+    csv_file = rospy.get_param('~csv_file', os.path.join(data_dir, 'simulation.csv'))
+    img_file = rospy.get_param('~img_file', os.path.join(data_dir, 'cte_sim.png'))
     
     if not os.path.exists(csv_file):
         rospy.logerr(f"[Plotter Node] CSV file not found: {csv_file}. Plotting canceled.")

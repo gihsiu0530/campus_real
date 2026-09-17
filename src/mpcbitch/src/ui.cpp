@@ -17,6 +17,7 @@
 #include <QDebug>
 
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <sensor_msgs/Image.h>
 #include <std_msgs/String.h>
 #include <cv_bridge/cv_bridge.h>
@@ -106,7 +107,7 @@ public:
         QHBoxLayout* batteryLayout = new QHBoxLayout(batteryWidget);
         batteryButton = new QPushButton(this);
         // 預設載入 100% 電池圖示，並順時針旋轉 90 度
-        QPixmap pix100("/home/king/Downloads/100.jpg");
+        QPixmap pix100(QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/100.jpg"));
         QPixmap rotated100 = pix100.transformed(QTransform().rotate(90));
         batteryButton->setIcon(QIcon(rotated100));
         batteryButton->setIconSize(QSize(100, 100));
@@ -189,12 +190,12 @@ public Q_SLOTS:
     void updateBatteryStatus(int percentage) {
         batteryPercentageLabel->setText(QString::number(percentage) + "%");
         QString path;
-        if (percentage >= 90)        path = "/home/cyc/golf_ws/100.jpg";
-        else if (percentage >= 70)   path = "/home/cyc/golf_ws/80.jpg";
-        else if (percentage >= 50)   path = "/home/cyc/golf_ws/60.jpg";
-        else if (percentage >= 30)   path = "/home/cyc/golf_ws/40.jpg";
-        else if (percentage >= 10)   path = "/home/cyc/golf_ws/20.jpg";
-        else                         path = "/home/cyc/golf_ws/0.jpg";
+        if (percentage >= 90)        path = QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/100.jpg");
+        else if (percentage >= 70)   path = QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/80.jpg");
+        else if (percentage >= 50)   path = QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/60.jpg");
+        else if (percentage >= 30)   path = QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/40.jpg");
+        else if (percentage >= 10)   path = QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/20.jpg");
+        else                         path = QString::fromStdString(ros::package::getPath("mpcbitch") + "/../../images/0.jpg");
 
         QPixmap pix(path);
         QPixmap rotated = pix.transformed(QTransform().rotate(90));
