@@ -1,0 +1,194 @@
+Panels:
+  - Class: rviz/Displays
+    Help Height: 0
+    Name: Displays
+    Property Tree Widget:
+      Expanded: ~
+      Splitter Ratio: 0.6
+    Tree Height: 400
+Preferences:
+  PromptSaveOnExit: true
+Toolbars:
+  toolButtonStyle: 2
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.5
+      Cell Size: 1
+      Class: rviz/Grid
+      Color: 112; 112; 115
+      Enabled: true
+      Line Style:
+        Line Width: 0.03
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 200
+      Reference Frame: <Fixed Frame>
+      Value: true
+    # OpenVINS feature tracks drawn on the stereo images.
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /ov_msckf/trackhist
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: VIO Tracks
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
+    # Planner semantic segmentation of the image it infers on.
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /senpai/seg_cls4_224
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Planner Seg
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
+    # OpenVINS estimated trajectory (global frame).
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 0; 255; 0
+      Enabled: true
+      Head Diameter: 0.3
+      Head Length: 0.2
+      Length: 0.3
+      Line Style: Billboards
+      Line Width: 0.08
+      Name: VIO Trajectory
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Queue Size: 10
+      Radius: 0.03
+      Shaft Diameter: 0.1
+      Shaft Length: 0.1
+      Topic: /ov_msckf/pathimu
+      Unreliable: false
+      Value: true
+    # Current VIO pose as fed to the planner and MPC.
+    - Angle Tolerance: 0.1
+      Class: rviz/Odometry
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: false
+        Position:
+          Alpha: 0.3
+          Color: 204; 51; 204
+          Scale: 1
+          Value: false
+        Value: false
+      Enabled: true
+      Keep: 1
+      Name: VIO Pose
+      Position Tolerance: 0.1
+      Queue Size: 10
+      Shape:
+        Alpha: 1
+        Axes Length: 1
+        Axes Radius: 0.1
+        Color: 255; 25; 0
+        Head Length: 0.3
+        Head Radius: 0.15
+        Shaft Length: 1
+        Shaft Radius: 0.05
+        Value: Arrow
+      Topic: /vio_odom
+      Unreliable: false
+      Value: true
+    # Latest inferred path, anchored on the VIO pose (same points as array_topic).
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 255; 170; 0
+      Enabled: true
+      Head Diameter: 0.3
+      Head Length: 0.2
+      Length: 0.3
+      Line Style: Billboards
+      Line Width: 0.12
+      Name: Planner Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0.05
+      Pose Color: 255; 255; 255
+      Pose Style: Axes
+      Queue Size: 10
+      Radius: 0.04
+      Shaft Diameter: 0.1
+      Shaft Length: 0.1
+      Topic: /senpai/path_global
+      Unreliable: false
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 44; 44; 44
+    Default Light: true
+    Fixed Frame: global
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz/Interact
+      Hide Inactive Objects: true
+    - Class: rviz/MoveCamera
+    - Class: rviz/Select
+    - Class: rviz/FocusCamera
+    - Class: rviz/Measure
+  Value: true
+  Views:
+    Current:
+      Angle: 0
+      Class: rviz/TopDownOrtho
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.06
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.01
+      Scale: 40
+      # Follow the vehicle: OpenVINS publishes the global -> imu TF.
+      Target Frame: imu
+      X: 0
+      Y: 0
+    Saved: ~
+Window Geometry:
+  # Displays on the left, 3D view in the centre, VIO Tracks and Planner Seg
+  # side by side along the bottom (sized for a 1600x900 screen).
+  Displays:
+    collapsed: false
+  Height: 860
+  Hide Left Dock: false
+  Hide Right Dock: true
+  Planner Seg:
+    collapsed: false
+  QMainWindow State: 000000ff00000000fd0000000200000000000001040000020dfc0200000001fb000000100044006900730070006c006100790073010000001d0000020d0000004900ffffff00000003000006400000012cfc0100000002fb0000001400560049004f00200054007200610063006b00730100000000000004660000003e00fffffffb000000160050006c0061006e006e006500720020005300650067010000046c000001d40000003e00ffffff000005360000020d00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  VIO Tracks:
+    collapsed: false
+  Width: 1600
+  X: 0
+  Y: 0

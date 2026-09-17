@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Launch the campus_ws runtime stack in a 2x3 terminator layout.
+# Launch the campus_ws runtime stack in a two-column terminator layout.
 #
 #   +---------------------------+---------------------------+
 #   | vio       (auto-run)      | vio2odom  (auto-run)      |
 #   |  ~/open_vins_P OpenVINS   |  /ov_msckf/poseimu ->     |
 #   |                           |  /vio_odom                |
+#   |                           +---------------------------+
+#   |                           | rviz      (auto-run)      |
+#   |                           |  rviz/vio_planner.rviz    |
 #   +---------------------------+---------------------------+
 #   | planner   (auto-run)      | rosserial (auto-run)      |
 #   |  conda stp3_ros           |  system ROS python        |
@@ -53,6 +56,7 @@ add_pane "mpc"       "$WS"    ""                              "roslaunch mpcbitc
 # OpenVINS runs from its own built workspace, not campus_ws.
 add_pane "vio"       "$HOME/open_vins_P" "source devel/setup.bash" "roslaunch ov_msckf subscribe.launch config:=zed2i max_cameras:=2 use_stereo:=true dolivetraj:=false dosave:=true path_est:=$HOME/open_vins_P/vio_estimate_zed2i_builtin_imu.csv" yes
 add_pane "vio2odom"  "$WS"    ""                              "rosrun mpcbitch vio_pose_to_odom.py"          yes
+add_pane "rviz"      "$WS"    ""                              'rviz -d $(rospack find mpcbitch)/rviz/vio_planner.rviz' yes
 
 # --- sanity checks -----------------------------------------------------------
 command -v terminator >/dev/null || { echo "[error] terminator not installed"; exit 1; }
@@ -109,8 +113,8 @@ done
 
 # --- generate the terminator layout ------------------------------------------
 # Pane indices follow add_pane order: 0=planner 1=rosserial 2=keyboard 3=mpc
-# 4=vio 5=vio2odom. Each column is a VPaned holding the top pane and a nested
-# VPaned for the middle and bottom panes.
+# 4=vio 5=vio2odom 6=rviz. Each column is a chain of VPaneds: every VPaned
+# holds one pane on top and the next VPaned (or the last pane) below it.
 term_block() {
     local idx="$1" name="$2" parent="$3" order="$4"
     cat <<EOF
@@ -164,21 +168,28 @@ cat <<EOF
       type = VPaned
       parent = hpane
       order = 1
-      position = 300
-      ratio = 0.333
+      position = 150
+      ratio = 0.167
     [[[vright2]]]
       type = VPaned
       parent = vright
       order = 1
+      position = 150
+      ratio = 0.2
+    [[[vright3]]]
+      type = VPaned
+      parent = vright2
+      order = 1
       position = 300
       ratio = 0.5
 EOF
-term_block 4 term_tl vleft   0   # vio        top-left
-term_block 0 term_ml vleft2  0   # planner    middle-left
-term_block 2 term_bl vleft2  1   # keyboard   bottom-left
-term_block 5 term_tr vright  0   # vio2odom   top-right
-term_block 1 term_mr vright2 0   # rosserial  middle-right
-term_block 3 term_br vright2 1   # mpc        bottom-right
+term_block 4 term_tl  vleft   0   # vio        top-left
+term_block 0 term_ml  vleft2  0   # planner    middle-left
+term_block 2 term_bl  vleft2  1   # keyboard   bottom-left
+term_block 5 term_tr  vright  0   # vio2odom   top-right (upper half of row 1)
+term_block 6 term_tr2 vright2 0   # rviz       top-right (lower half of row 1)
+term_block 1 term_mr  vright3 0   # rosserial  middle-right
+term_block 3 term_br  vright3 1   # mpc        bottom-right
 echo "[plugins]"
 } > "$CONF"
 
