@@ -189,8 +189,8 @@
             bool use_state_projection_ = true;
             double state_projection_delay_ = 0.4;  // seconds
 
-            double min_v_forward_ = 1.0;   // 前進最小速度 1      0.5
-            double max_v_forward_ = 1.0;   // 前進最大速度 2.5    0.8
+            double min_v_forward_ = 1;   // 前進最小速度 1      0.5
+            double max_v_forward_ = 1.2;   // 前進最大速度 2.5    0.8
             double min_v_reverse_ = 0.22;   // 倒退最小速度（較慢）
             double max_v_reverse_ = 0.40;   // 倒退最大速度（較小）
             
@@ -216,6 +216,12 @@
             std::string path_source_ = "global";                      // "global" or "planner"
             std::string global_array_topic_ = "array_topic";          // global_path.cpp source
             std::string planner_array_topic_ = "/senpai/array_topic"; // realtime_planner source
+
+            // Localization source selection. Both topics carry nav_msgs/Odometry
+            // for the same vehicle point; "vio" is only valid with the planner source.
+            std::string localization_source_ = "lidar";   // "lidar" or "vio"
+            std::string lidar_odom_topic_ = "/odom";      // LiDAR localization
+            std::string vio_odom_topic_ = "/vio_odom";    // vio_pose_to_odom.py output
 
             // Planner-source path handling. The planner republishes a whole new
             // 7-point / 3 s path every 0.5 s, so index-based end-of-route logic

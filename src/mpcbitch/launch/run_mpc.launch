@@ -1,4 +1,8 @@
 <launch>
+    <!-- Localization source: "lidar" (/odom) or "vio" (/vio_odom).
+         roslaunch mpcbitch run_mpc.launch localization_source:=vio -->
+    <arg name="localization_source" default="lidar" />
+
     <!-- <node pkg="mpc_4state" type="global_path" name="global_path" output="screen" /> -->
     <param name="CTE_ENTER" value="0.02" />    //0.02
     <param name="CTE_EXIT" value="0.035" />     //0.035
@@ -45,6 +49,15 @@
              republishes every 0.5 s, so this is 3 missed inference cycles.
              Inside <node> for the same reason as path_source above. -->
         <param name="PLAN_TIMEOUT" value="1.5" />
+
+        <!-- Pose source for the MPC. "vio" requires path_source=planner (the
+             CSV route is in the LiDAR map frame; otherwise the node logs an
+             ERROR and falls back to lidar). Start separately, e.g. via
+             soturon.sh: rosrun mpcbitch vio_pose_to_odom.py (publishes
+             /vio_odom) and realtime_planner_node_ff_VIO.py (anchors its path
+             on /vio_odom).
+             Inside <node> for the same reason as path_source above. -->
+        <param name="localization_source" value="$(arg localization_source)" />
 
         <!-- Slow zone example:
         x/y are map coordinates. target_speed is the speed near that point (m/s).

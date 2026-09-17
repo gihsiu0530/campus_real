@@ -318,6 +318,25 @@ void MPCPlanner_path::initialize() {
   // identical to the pre-planner behaviour, which is the validated baseline.
   planner_mode_ = (path_source_ == "planner");
 
+  // Localization source: "lidar" (/odom) or "vio" (vio_pose_to_odom.py). The
+  // planner anchors its path with the same pose source, so the two must match.
+  private_nh_.param<std::string>("localization_source", localization_source_,
+                                 "lidar");
+  private_nh_.param<std::string>("lidar_odom_topic", lidar_odom_topic_, "/odom");
+  private_nh_.param<std::string>("vio_odom_topic", vio_odom_topic_, "/vio_odom");
+  if (localization_source_ != "lidar" && localization_source_ != "vio") {
+    ROS_ERROR("localization_source must be \"lidar\" or \"vio\", got \"%s\"; "
+              "using lidar",
+              localization_source_.c_str());
+    localization_source_ = "lidar";
+  }
+  // The CSV route lives in the LiDAR map frame, which VIO does not share.
+  if (!planner_mode_ && localization_source_ == "vio") {
+    ROS_ERROR("localization_source=vio requires path_source=planner (the "
+              "global CSV route is in the LiDAR map frame); using lidar");
+    localization_source_ = "lidar";
+  }
+
   private_nh_.setParam("KAPPA_STRAIGHT", kappa_straight_);
   private_nh_.setParam("CTE_ENTER", cte_enter_);
   private_nh_.setParam("EPSI_ENTER", epsi_enter_);
@@ -337,6 +356,9 @@ void MPCPlanner_path::initialize() {
   private_nh_.setParam("global_array_topic", global_array_topic_);
   private_nh_.setParam("planner_array_topic", planner_array_topic_);
   private_nh_.setParam("PLAN_TIMEOUT", plan_timeout_);
+  private_nh_.setParam("localization_source", localization_source_);
+  private_nh_.setParam("lidar_odom_topic", lidar_odom_topic_);
+  private_nh_.setParam("vio_odom_topic", vio_odom_topic_);
 
   ROS_INFO("Data will be saved to: %s", filename_.c_str());
   ROS_INFO("State projection: %s, delay=%.3f sec",
@@ -402,8 +424,13 @@ void MPCPlanner_path::initialize() {
                "path timeout = %.2f s",
                plan_timeout_);
     }
+    const std::string &pose_topic = (localization_source_ == "vio")
+                                        ? vio_odom_topic_
+                                        : lidar_odom_topic_;
     car_pose_sub =
-        nh_.subscribe("/odom", 1000, &MPCPlanner_path::computelocalpath, this);
+        nh_.subscribe(pose_topic, 1000, &MPCPlanner_path::computelocalpath, this);
+    ROS_INFO("localization source = %s (%s)", localization_source_.c_str(),
+             pose_topic.c_str());
 
     local_path_to_matlab_pub =
         nh_.advertise<std_msgs::Float64MultiArray>("/local_path", 1000);

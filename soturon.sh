@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
-# Launch the campus_ws runtime stack in a 2x2 terminator layout.
+# Launch the campus_ws runtime stack in a two-column terminator layout.
 #
+#   +---------------------------+---------------------------+
+#   | vio       (auto-run)      | vio2odom  (auto-run)      |
+#   |  ~/open_vins_P OpenVINS   |  /ov_msckf/poseimu ->     |
+#   |                           |  /vio_odom                |
+#   |                           +---------------------------+
+#   |                           | rviz      (auto-run)      |
+#   |                           |  rviz/vio_planner.rviz    |
 #   +---------------------------+---------------------------+
 #   | planner   (auto-run)      | rosserial (auto-run)      |
 #   |  conda stp3_ros           |  system ROS python        |
@@ -8,6 +15,9 @@
 #   | keyboard  (auto-run)      | mpc       (NOT run)       |
 #   |  system ROS python        |  pre-loaded in history    |
 #   +---------------------------+---------------------------+
+#
+# The ZED2i driver is not started here. The planner waits for /vio_odom, so
+# vio and vio2odom may come up after it.
 #
 # Every pane keeps an interactive bash alive and seeds its command into that
 # shell's history, so Ctrl-C followed by Up-arrow + Enter re-runs the node.
@@ -37,12 +47,16 @@ add_pane() {
 }
 
 #        title       workdir  prep                            command                                        autorun
-PLANNER_CMD="python realtime_planner_node_ff_VIO_VLM.py _checkpoint:=$PI/real_time_ff/model/0805_hybrid/best-l2-epoch=28-epoch_val_plan_L2=1.2814.ckpt _expected_model_variant:=hybrid _ego_input_mode:=fixed_speed _fixed_speed_mps:=1.0 _segmentation_backend:=twinlitenet _use_depth:=true _use_fp16:=true _save_plots:=true _plot_seg:=true _plot_depth:=true _plot_mode:=realtime"
+PLANNER_CMD="python realtime_planner_node_ff_VIO.py _checkpoint:=$PI/real_time_ff/model/0805_hybrid/best-l2-epoch=28-epoch_val_plan_L2=1.2814.ckpt     _expected_model_variant:=hybrid     _ego_input_mode:=fixed_speed     _fixed_speed_mps:=1.0     _segmentation_backend:=yolo26l     _use_depth:=true     _use_fp16:=true     _save_plots:=true     _plot_seg:=true     _plot_depth:=true _plot_mode:=realtime"
 
 add_pane "planner"   "$PI/real_time_ff" "conda activate $CONDA_ENV" "$PLANNER_CMD"   yes
 add_pane "rosserial" "$WS"    ""                              "rosrun rosserial_python serial_node.py $SERIAL_PORT" yes
-add_pane "keyboard"  "$PI"    ""                              "python3 realtime/keyboard_command.py"         yes
-add_pane "mpc"       "$WS"    ""                              "roslaunch mpcbitch run_mpc.launch"            no
+add_pane "keyboard"  "$PI"    ""                              "python3 real_time_ff/keyboard_command.py"         yes
+add_pane "mpc"       "$WS"    ""                              "roslaunch mpcbitch run_mpc.launch localization_source:=vio"            no
+# OpenVINS runs from its own built workspace, not campus_ws.
+add_pane "vio"       "$HOME/open_vins_P" "source devel/setup.bash" "roslaunch ov_msckf subscribe.launch config:=zed2i max_cameras:=2 use_stereo:=true dolivetraj:=false dosave:=true path_est:=$HOME/open_vins_P/vio_estimate_zed2i_builtin_imu.csv" yes
+add_pane "vio2odom"  "$WS"    ""                              "rosrun mpcbitch vio_pose_to_odom.py"          yes
+add_pane "rviz"      "$WS"    ""                              'rviz -d $(rospack find mpcbitch)/rviz/vio_planner.rviz' yes
 
 # --- sanity checks -----------------------------------------------------------
 command -v terminator >/dev/null || { echo "[error] terminator not installed"; exit 1; }
@@ -98,7 +112,9 @@ for i in "${!P_TITLE[@]}"; do
 done
 
 # --- generate the terminator layout ------------------------------------------
-# Pane order in the layout: 0=top-left 1=top-right 2=bottom-left 3=bottom-right
+# Pane indices follow add_pane order: 0=planner 1=rosserial 2=keyboard 3=mpc
+# 4=vio 5=vio2odom 6=rviz. Each column is a chain of VPaneds: every VPaned
+# holds one pane on top and the next VPaned (or the last pane) below it.
 term_block() {
     local idx="$1" name="$2" parent="$3" order="$4"
     cat <<EOF
@@ -140,19 +156,40 @@ cat <<EOF
       type = VPaned
       parent = hpane
       order = 0
-      position = 450
+      position = 300
+      ratio = 0.333
+    [[[vleft2]]]
+      type = VPaned
+      parent = vleft
+      order = 1
+      position = 300
       ratio = 0.5
     [[[vright]]]
       type = VPaned
       parent = hpane
       order = 1
-      position = 450
+      position = 150
+      ratio = 0.167
+    [[[vright2]]]
+      type = VPaned
+      parent = vright
+      order = 1
+      position = 150
+      ratio = 0.2
+    [[[vright3]]]
+      type = VPaned
+      parent = vright2
+      order = 1
+      position = 300
       ratio = 0.5
 EOF
-term_block 0 term_tl vleft  0   # planner    top-left
-term_block 2 term_bl vleft  1   # keyboard   bottom-left
-term_block 1 term_tr vright 0   # rosserial  top-right
-term_block 3 term_br vright 1   # mpc        bottom-right
+term_block 4 term_tl  vleft   0   # vio        top-left
+term_block 0 term_ml  vleft2  0   # planner    middle-left
+term_block 2 term_bl  vleft2  1   # keyboard   bottom-left
+term_block 5 term_tr  vright  0   # vio2odom   top-right (upper half of row 1)
+term_block 6 term_tr2 vright2 0   # rviz       top-right (lower half of row 1)
+term_block 1 term_mr  vright3 0   # rosserial  middle-right
+term_block 3 term_br  vright3 1   # mpc        bottom-right
 echo "[plugins]"
 } > "$CONF"
 
