@@ -1,9 +1,17 @@
 <launch>
+    <arg name="rviz" default="true" />
+
     <node pkg="mpc_4state" type="global_path" name="global_path" output="screen" />
 
     <node pkg="mpc_4state" type="mpc_simulate" name="mpc_simulate" output="screen" />
 
-    <node pkg="mpcbitch" type="mpc" name="mpc" output="screen" />
+    <node pkg="mpcbitch" type="mpc" name="mpc" output="screen">
+        <!-- Forward speed limits (m/s) -->
+        <param name="min_v_forward" value="5.0" />
+        <param name="max_v_forward" value="5.2" />
+    </node>
 
     <node pkg="mpcbitch" type="plot_cte.py" name="cte_plotter_node" output="screen" />
+
+    <include file="$(find mpcbitch)/launch/rviz_display.launch" if="$(arg rviz)" />
 </launch>

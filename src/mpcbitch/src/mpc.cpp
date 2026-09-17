@@ -141,6 +141,7 @@ void MPCPlanner_path::MPCPlanner(ros::NodeHandle *nh) {
 }
 
 void MPCPlanner_path::initialize() {
+  private_nh_ = ros::NodeHandle("~");
   caculate_mpc_start = ros::Time::now().toSec();
 
   Eigen::Vector2d u_prev;
@@ -156,6 +157,11 @@ void MPCPlanner_path::initialize() {
                             latency_compensation_sec, latency_compensation_sec);
   ROS_INFO("Data will be saved to: %s", filename_.c_str());
   ROS_INFO("Latency compensation horizon: %.3f s", latency_compensation_sec);
+
+  private_nh_.param<double>("min_v_forward", min_v_forward_, min_v_forward_);
+  private_nh_.param<double>("max_v_forward", max_v_forward_, max_v_forward_);
+  ROS_INFO("Forward speed range: [%.2f, %.2f] m/s", min_v_forward_,
+           max_v_forward_);
 
   ROS_INFO("MPC Planner initialized START");
   if (!initialize_) {

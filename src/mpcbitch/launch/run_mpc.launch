@@ -50,6 +50,10 @@
              Inside <node> for the same reason as path_source above. -->
         <param name="PLAN_TIMEOUT" value="1.5" />
 
+        <!-- Forward speed limits (m/s). Inside <node>: read from ~ namespace. -->
+        <param name="min_v_forward" value="1.0" />
+        <param name="max_v_forward" value="1.2" />
+
         <!-- Pose source for the MPC. "vio" requires path_source=planner (the
              CSV route is in the LiDAR map frame; otherwise the node logs an
              ERROR and falls back to lidar). Start separately, e.g. via

@@ -287,6 +287,11 @@ void MPCPlanner_path::initialize() {
   private_nh_.param("state_projection_delay", state_projection_delay_, 0.5);
   loadSlowZonesFromParams();
 
+  private_nh_.param<double>("min_v_forward", min_v_forward_, min_v_forward_);
+  private_nh_.param<double>("max_v_forward", max_v_forward_, max_v_forward_);
+  ROS_INFO("Forward speed range: [%.2f, %.2f] m/s", min_v_forward_,
+           max_v_forward_);
+
     // ---straight line deadband---isekai
   private_nh_.param<double>("KAPPA_STRAIGHT", kappa_straight_, 0.05);
   private_nh_.param<double>("CTE_ENTER", cte_enter_, 0.015);
