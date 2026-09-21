@@ -52,7 +52,7 @@ PLANNER_CMD="python realtime_planner_node_ff_VIO.py _checkpoint:=$PI/real_time_f
 add_pane "planner"   "$PI/real_time_ff" "conda activate $CONDA_ENV" "$PLANNER_CMD"   yes
 add_pane "rosserial" "$WS"    ""                              "rosrun rosserial_python serial_node.py $SERIAL_PORT" yes
 add_pane "keyboard"  "$PI"    ""                              "python3 real_time_ff/keyboard_command.py"         yes
-add_pane "mpc"       "$WS"    ""                              "roslaunch mpcbitch run_mpc.launch localization_source:=vio"            no
+add_pane "mpc"       "$WS"    ""                              "roslaunch mpcbitch run_mpc.launch path_source:=planner localization_source:=vio"            no
 # OpenVINS runs from its own built workspace, not campus_ws.
 add_pane "vio"       "$HOME/open_vins_P" "source devel/setup.bash" "roslaunch ov_msckf subscribe.launch config:=zed2i max_cameras:=2 use_stereo:=true dolivetraj:=false dosave:=true path_est:=$HOME/open_vins_P/vio_estimate_zed2i_builtin_imu.csv" yes
 add_pane "vio2odom"  "$WS"    ""                              "rosrun mpcbitch vio_pose_to_odom.py"          yes
