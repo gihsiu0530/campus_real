@@ -13,14 +13,14 @@
         <param name="emulate_real_sensors" value="true" />
         <!-- End the run once the vehicle has stood still for auto_stop_duration -->
         <param name="auto_stop" value="true" />
-        <param name="auto_stop_speed" value="0.05" />
+        <param name="auto_stop_speed" value="0.09" />
         <param name="auto_stop_duration" value="3.0" />
     </node>
 
     <node pkg="mpcbitch" type="mpc" name="mpc" output="screen">
         <!-- Forward speed limits (m/s) -->
         <param name="min_v_forward" value="1.0" />
-        <param name="max_v_forward" value="2.5" />
+        <param name="max_v_forward" value="3.0" />
         <!-- Max steering change per control step (rad) -->
         <param name="max_delta_inc" value="0.0084" /> 0.0084 0.02
         <param name="save_dir" value="$(arg sim_dir)" />
@@ -34,6 +34,29 @@
         <!-- MPC weight on steering change (code default 30); larger = calmer
              steering but slower response -->
         <param name="R_steer" value="100" />
+        <!-- Precomputed speed profile from clean curvature + physical limits
+             (replaces the curvature-threshold speed planner) -->
+        <param name="speed_profile" value="true" />
+        <!-- new speed planner parameters (for the clean curvature speed profile) -->
+        <param name="speed_profile_steer_rate_frac" value="0.5" />
+        <param name="speed_profile_a_lat" value="0.4" />
+        <param name="speed_profile_a_acc" value="0.15" />
+        <param name="speed_profile_a_dec" value="0.15" />
+        <!-- Strictest limit within +-N path points (0.7 m each), so the speed
+             does not rise at a curve apex -->
+        <param name="speed_profile_window" value="5" />
+        <!-- Savitzky-Golay smoothing of the route waypoints (+-N points,
+             0 = off); removes their ~1 cm noise, moves points <= ~4 cm -->
+        <param name="path_smooth_window" value="5" />
+        <!-- Feedforward lookahead = max(ff_lookahead_min, v * ff_lookahead_time).
+             0.75 s gives the old fixed 1.87 m at 2.5 m/s and more above it;
+             ff_lookahead_time 0 = old fixed lookahead -->
+        <param name="ff_lookahead_time" value="0" />
+        <param name="ff_lookahead_min" value="1.87" />
+        <!-- Feedforward steering from the clean speed-profile curvature
+             instead of the noisy per-point curvature -->
+        <param name="clean_feedforward" value="false" />
+        <param name="clean_feedforward_lookahead" value="2.67" />
     </node>
 
     <!-- Plots the newest CSV in sim_dir on shutdown, saves <name>_cte.png next to it -->
