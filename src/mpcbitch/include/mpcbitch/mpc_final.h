@@ -247,7 +247,7 @@
             //angle 
             double max_delta_ = 0.45;             //最大角度
             double min_delta_ = -0.45;            //最小角度
-            double max_delta_inc_= 0.0084;        //角度差值 //0.0067
+            double max_delta_inc_= 0.02;        //角度差值 //0.0067
 
             double caculate_mpc_start = 0;
             double caculate_mpc_finish = 0; 

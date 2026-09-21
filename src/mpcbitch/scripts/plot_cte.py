@@ -6,6 +6,7 @@ import matplotlib
 matplotlib.use('Agg')  # Background plotting mode to avoid errors in non-GUI environments
 import matplotlib.pyplot as plt
 import os
+import glob
 import time
 
 def generate_plot():
@@ -19,7 +20,18 @@ def generate_plot():
     data_dir = os.path.normpath(os.path.join(rospkg.RosPack().get_path('mpcbitch'), '..', '..', 'mpcdata'))
     csv_file = rospy.get_param('~csv_file', os.path.join(data_dir, 'real.csv'))
     img_file = rospy.get_param('~img_file', os.path.join(data_dir, 'cte.png'))
-    
+
+    # If ~csv_dir is set, plot the newest CSV in it and save the image next to
+    # it as <name>_cte.png (overrides ~csv_file / ~img_file)
+    csv_dir = rospy.get_param('~csv_dir', '')
+    if csv_dir:
+        csvs = glob.glob(os.path.join(csv_dir, '*.csv'))
+        if not csvs:
+            rospy.logerr(f"[Plotter Node] No CSV files found in: {csv_dir}. Plotting canceled.")
+            return
+        csv_file = max(csvs, key=os.path.getmtime)
+        img_file = os.path.splitext(csv_file)[0] + '_cte.png'
+
     if not os.path.exists(csv_file):
         rospy.logerr(f"[Plotter Node] CSV file not found: {csv_file}. Plotting canceled.")
         return

@@ -10,4 +10,5 @@ build/
 devel/
 path_inference/
 *.mp4
-.claude/.~lock.*#
+.claude/
+.~lock.*#

@@ -1,66 +1,42 @@
-#include "mpcbitch/mpc_final.h"
+#include "mpcbitch/mpc_final.h" 
 #include <OsqpEigen/OsqpEigen.h>
 #include <algorithm>
 #include <carla_msgs/CarlaEgoVehicleControl.h>
 #include <cmath>
-#include <cstdlib>
 #include <deque>
 #include <eigen3/Eigen/Core>
 #include <eigen3/Eigen/Dense>
 #include <eigen3/Eigen/QR>
 #include <eigen3/unsupported/Eigen/KroneckerProduct>
 #include <eigen3/unsupported/Eigen/MatrixFunctions>
+#include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <geometry_msgs/PointStamped.h>
 #include <iostream>
-#include <ros/package.h>
+#include <limits>
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <std_msgs/Bool.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <tf2/utils.h>
 #include <vector>
+#include <xmlrpcpp/XmlRpcValue.h>
 
 std::string filename_;
 ros::Publisher stop_signal_pub;
 ros::Publisher carla_control_pub;
-ros::Publisher cte_pub;
 
 static double prev_theta = 0.0;
 static bool reversed_mode = false;
-static double latency_compensation_sec = 0.0; // 補償延遲秒數
+double u_delta = 0;
 
-static double normalizeAngle(double angle) {
-  while (angle > M_PI)
-    angle -= 2.0 * M_PI;
-  while (angle < -M_PI)
-    angle += 2.0 * M_PI;
-  return angle;
-}
-
-// latency compensation function
-static void projectStateForward(double x, double y, double theta, double v,
-                                double omega, double dt, double &x_pred,
-                                double &y_pred, double &theta_pred) {
-  if (dt <= 0.0) {
-    x_pred = x;
-    y_pred = y;
-    theta_pred = theta;
-    return;
-  }
-
-  if (std::fabs(omega) < 1e-5) {
-    x_pred = x + v * std::cos(theta) * dt;
-    y_pred = y + v * std::sin(theta) * dt;
-  } else {
-    double theta_next = theta + omega * dt;
-    x_pred = x + (v / omega) * (std::sin(theta_next) - std::sin(theta));
-    y_pred = y - (v / omega) * (std::cos(theta_next) - std::cos(theta));
-  }
-  theta_pred = normalizeAngle(theta + omega * dt);
-}
+// Defined further down, but setPlan needs it to clear the stop latch when the
+// planner path comes back after a timeout.
+void publishStopSignal(bool stop);
 
 double MPCPlanner_path::dist(const geometry_msgs::PoseStamped &node1,
                              const geometry_msgs::PoseStamped &node2) {
@@ -84,6 +60,167 @@ double MPCPlanner_path::regularizeAngle(double angle) {
   return a;
 }
 
+namespace {
+bool readXmlRpcDouble(XmlRpc::XmlRpcValue &value, double &out) {
+  if (value.getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+    out = static_cast<double>(value);
+    return true;
+  }
+  if (value.getType() == XmlRpc::XmlRpcValue::TypeInt) {
+    out = static_cast<int>(value);
+    return true;
+  }
+  return false;
+}
+
+bool readXmlRpcMemberDouble(XmlRpc::XmlRpcValue &value, const std::string &key,
+                            double &out) {
+  if (value.getType() != XmlRpc::XmlRpcValue::TypeStruct ||
+      !value.hasMember(key)) {
+    return false;
+  }
+  return readXmlRpcDouble(value[key], out);
+}
+} // namespace
+
+void MPCPlanner_path::loadSlowZonesFromParams() {
+  private_nh_.param("slow_zones_enabled", slow_zones_enabled_, true);
+  private_nh_.param("slow_zone_default_radius", slow_zone_default_radius_, 1.0);
+  private_nh_.param("slow_zone_default_approach_distance",
+                    slow_zone_default_approach_distance_, 3.0);
+  private_nh_.param("slow_zone_default_leave_distance",
+                    slow_zone_default_leave_distance_, 1.0);
+
+  slow_zones_.clear();
+
+  XmlRpc::XmlRpcValue zones_param;
+  if (!private_nh_.getParam("slow_zones", zones_param)) {
+    ROS_INFO("No slow_zones configured.");
+    return;
+  }
+
+  if (zones_param.getType() != XmlRpc::XmlRpcValue::TypeArray) {
+    ROS_WARN("slow_zones must be a YAML list. Ignoring slow zone settings.");
+    return;
+  }
+
+  for (int i = 0; i < zones_param.size(); ++i) {
+    XmlRpc::XmlRpcValue &item = zones_param[i];
+    SlowZone zone;
+    zone.radius = slow_zone_default_radius_;
+    zone.approach_distance = slow_zone_default_approach_distance_;
+    zone.leave_distance = slow_zone_default_leave_distance_;
+
+    bool ok = false;
+    if (item.getType() == XmlRpc::XmlRpcValue::TypeStruct) {
+      double speed = 0.0;
+      ok = readXmlRpcMemberDouble(item, "x", zone.x) &&
+           readXmlRpcMemberDouble(item, "y", zone.y) &&
+           (readXmlRpcMemberDouble(item, "target_speed", speed) ||
+            readXmlRpcMemberDouble(item, "speed", speed));
+
+      readXmlRpcMemberDouble(item, "radius", zone.radius);
+      readXmlRpcMemberDouble(item, "approach_distance", zone.approach_distance);
+      readXmlRpcMemberDouble(item, "leave_distance", zone.leave_distance);
+      zone.target_speed = std::fabs(speed);
+    } else if (item.getType() == XmlRpc::XmlRpcValue::TypeArray &&
+               item.size() >= 3) {
+      ok = readXmlRpcDouble(item[0], zone.x) &&
+           readXmlRpcDouble(item[1], zone.y) &&
+           readXmlRpcDouble(item[2], zone.target_speed);
+
+      if (item.size() >= 4)
+        readXmlRpcDouble(item[3], zone.radius);
+      if (item.size() >= 5)
+        readXmlRpcDouble(item[4], zone.approach_distance);
+      if (item.size() >= 6)
+        readXmlRpcDouble(item[5], zone.leave_distance);
+      zone.target_speed = std::fabs(zone.target_speed);
+    }
+
+    if (!ok || zone.target_speed <= 0.0) {
+      ROS_WARN("Invalid slow_zones[%d]. Need x, y and target_speed/speed > 0.",
+               i);
+      continue;
+    }
+
+    zone.radius = std::max(0.0, zone.radius);
+    zone.approach_distance = std::max(0.0, zone.approach_distance);
+    zone.leave_distance = std::max(0.0, zone.leave_distance);
+    slow_zones_.push_back(zone);
+  }
+
+  ROS_INFO("Loaded %zu slow zone(s).", slow_zones_.size());
+}
+
+void MPCPlanner_path::updateSlowZonePathIndices() {
+  if (global_path_x.empty() || global_path_y.empty()) {
+    return;
+  }
+
+  for (size_t z = 0; z < slow_zones_.size(); ++z) {
+    double best_dist_sq = std::numeric_limits<double>::max();
+    int best_index = -1;
+
+    for (size_t i = 0; i < global_path_x.size(); ++i) {
+      const double dx = global_path_x[i] - slow_zones_[z].x;
+      const double dy = global_path_y[i] - slow_zones_[z].y;
+      const double dist_sq = dx * dx + dy * dy;
+      if (dist_sq < best_dist_sq) {
+        best_dist_sq = dist_sq;
+        best_index = static_cast<int>(i);
+      }
+    }
+
+    slow_zones_[z].path_index = best_index;
+    if (best_index >= 0 &&
+        best_index < static_cast<int>(global_path_s_.size())) {
+      slow_zones_[z].path_s = global_path_s_[best_index];
+      ROS_INFO("slow_zones[%zu]: path_index=%d, path_s=%.2f, target_speed=%.2f",
+               z, best_index, slow_zones_[z].path_s,
+               slow_zones_[z].target_speed);
+    }
+  }
+}
+
+double MPCPlanner_path::applySlowZoneSpeedLimit(int nearest_index, double px,
+                                                double py,
+                                                double v_allowed) const {
+  if (!slow_zones_enabled_ || slow_zones_.empty() || global_path_s_.empty() ||
+      nearest_index < 0) {
+    return v_allowed;
+  }
+
+  const int idx =
+      std::clamp(nearest_index, 0, static_cast<int>(global_path_s_.size()) - 1);
+  const double current_s = global_path_s_[idx];
+  double limited_v = v_allowed;
+
+  for (size_t z = 0; z < slow_zones_.size(); ++z) {
+    const SlowZone &zone = slow_zones_[z];
+    if (zone.path_index < 0) {
+      continue;
+    }
+
+    const double zone_start_s = zone.path_s - zone.approach_distance;
+    const double zone_end_s = zone.path_s + zone.leave_distance;
+    const double distance_to_zone = std::hypot(px - zone.x, py - zone.y);
+    const bool in_path_window =
+        current_s >= zone_start_s && current_s <= zone_end_s;
+    const bool in_radius = distance_to_zone <= zone.radius;
+
+    if (in_path_window || in_radius) {
+      limited_v = std::min(limited_v, zone.target_speed);
+      ROS_INFO_THROTTLE(1.0,
+                        "Slow zone active[%zu]: target_speed=%.2f, "
+                        "current_s=%.2f, zone_s=%.2f",
+                        z, zone.target_speed, current_s, zone.path_s);
+    }
+  }
+
+  return limited_v;
+}
+
 double MPCPlanner_path::anglarRegularization(nav_msgs::Odometry &base_odometry,
                                              double delta_d) {
   // delta_d 為模型預測控制計算出來的角度
@@ -94,7 +231,6 @@ double MPCPlanner_path::anglarRegularization(nav_msgs::Odometry &base_odometry,
 
   if (std::fabs(delta_d) > max_delta_) {
     delta_d = std::copysign(max_delta_, delta_d);
-    cte_pub = nh_.advertise<std_msgs::Float64>("/cte_realtime", 1000);
   }
 
   // delta為當前前輪夾角
@@ -128,7 +264,6 @@ double MPCPlanner_path::anglarRegularization(nav_msgs::Odometry &base_odometry,
   // 如果調整過後的角速度的絕對值小於設定最小角速度上限
   // 將min_w_的絕對值*w_cmd的正負號
   // 將角速度限制在最小角速度上限
-  // min_delta <0
   else if (std::fabs(delta_cmd) < min_delta_) {
     delta_cmd = std::copysign(min_delta_, delta_cmd);
   }
@@ -147,21 +282,114 @@ void MPCPlanner_path::initialize() {
   Eigen::Vector2d u_prev;
   u_prev = Eigen::Vector2d(min_v_, 0);
 
-  std::string pkg_path = ros::package::getPath("mpcbitch");
+  private_nh_.param<std::string>("save_filename", filename_,
+                                 ros::package::getPath("mpcbitch") + "/../../mpcdata/simulation.csv");
 
-  std::string default_path = pkg_path + "/../../mpcdata/simulation.csv";
-
-  private_nh_.param<std::string>("save_filename", filename_, default_path);
-
-  private_nh_.param<double>("latency_compensation_sec",
-                            latency_compensation_sec, latency_compensation_sec);
-  ROS_INFO("Data will be saved to: %s", filename_.c_str());
-  ROS_INFO("Latency compensation horizon: %.3f s", latency_compensation_sec);
+  // If ~save_dir is set, write to <save_dir>/sim_YYYYmmdd_HHMMSS.csv instead
+  // so each run keeps its own log (overrides ~save_filename).
+  std::string save_dir;
+  if (private_nh_.getParam("save_dir", save_dir) && !save_dir.empty()) {
+    std::error_code ec;
+    std::filesystem::create_directories(save_dir, ec);
+    if (ec) {
+      ROS_ERROR("Failed to create save_dir %s: %s", save_dir.c_str(),
+                ec.message().c_str());
+    }
+    char stamp[32];
+    std::time_t now = std::time(nullptr);
+    std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S",
+                  std::localtime(&now));
+    filename_ = save_dir + "/sim_" + stamp + ".csv";
+  }
+  private_nh_.param("use_state_projection", use_state_projection_,
+                    true); // false 關閉
+  private_nh_.param("state_projection_delay", state_projection_delay_, 0.5);
+  loadSlowZonesFromParams();
 
   private_nh_.param<double>("min_v_forward", min_v_forward_, min_v_forward_);
   private_nh_.param<double>("max_v_forward", max_v_forward_, max_v_forward_);
   ROS_INFO("Forward speed range: [%.2f, %.2f] m/s", min_v_forward_,
            max_v_forward_);
+  private_nh_.param<double>("max_delta_inc", max_delta_inc_, max_delta_inc_);
+  ROS_INFO("Max steering increment: %.4f rad/step", max_delta_inc_);
+
+    // ---straight line deadband---isekai
+  private_nh_.param<double>("KAPPA_STRAIGHT", kappa_straight_, 0.05);
+  private_nh_.param<double>("CTE_ENTER", cte_enter_, 0.015);
+  private_nh_.param<double>("EPSI_ENTER", epsi_enter_, 0.005);
+  private_nh_.param<double>("CTE_EXIT", cte_exit_, 0.035);
+  private_nh_.param<double>("EPSI_EXIT", epsi_exit_, 0.025);
+  private_nh_.param<int>("DEBOUNCE_CYCLES", debounce_cycles_, 5);
+
+  private_nh_.param<double>("KAPPA_LOW_SPEED_THRESH", kappa_low_speed_thresh_,
+                            0.04);
+  private_nh_.param<double>("KAPPA_LOW_SPEED", kappa_low_speed_, 0.5);
+
+  private_nh_.param<double>("MIN_LOOKAHEAD", min_lookahead_, 10.0);
+  private_nh_.param<double>("MAX_LOOKAHEAD", max_lookahead_, 30.0);
+  private_nh_.param<double>("LOOKAHEAD_GAIN", lookahead_gain_, 10.0);
+  private_nh_.param<int>("LOOK_BACK_DIST", look_back_dist_, 5);
+
+  // Reference path source: "global" (global_path.cpp CSV route) or
+  // "planner" (realtime_planner_node.py inferred path). Both publish the same
+  // std_msgs/Float64MultiArray [x0,y0,x1,y1,...] layout, so switching is just a
+  // topic-name change; setPlan stays identical.
+  private_nh_.param<std::string>("path_source", path_source_, "global");
+  private_nh_.param<std::string>("global_array_topic", global_array_topic_,
+                                 "array_topic");
+  private_nh_.param<std::string>("planner_array_topic", planner_array_topic_,
+                                 "/senpai/array_topic");
+  private_nh_.param<double>("PLAN_TIMEOUT", plan_timeout_, 1.5);
+
+  // Everything gated on this flag keeps the "global" source bit-for-bit
+  // identical to the pre-planner behaviour, which is the validated baseline.
+  planner_mode_ = (path_source_ == "planner");
+
+  // Localization source: "lidar" (/odom) or "vio" (vio_pose_to_odom.py). The
+  // planner anchors its path with the same pose source, so the two must match.
+  private_nh_.param<std::string>("localization_source", localization_source_,
+                                 "lidar");
+  private_nh_.param<std::string>("lidar_odom_topic", lidar_odom_topic_, "/odom");
+  private_nh_.param<std::string>("vio_odom_topic", vio_odom_topic_, "/vio_odom");
+  if (localization_source_ != "lidar" && localization_source_ != "vio") {
+    ROS_ERROR("localization_source must be \"lidar\" or \"vio\", got \"%s\"; "
+              "using lidar",
+              localization_source_.c_str());
+    localization_source_ = "lidar";
+  }
+  // The CSV route lives in the LiDAR map frame, which VIO does not share.
+  if (!planner_mode_ && localization_source_ == "vio") {
+    ROS_ERROR("localization_source=vio requires path_source=planner (the "
+              "global CSV route is in the LiDAR map frame); using lidar");
+    localization_source_ = "lidar";
+  }
+
+  private_nh_.setParam("KAPPA_STRAIGHT", kappa_straight_);
+  private_nh_.setParam("CTE_ENTER", cte_enter_);
+  private_nh_.setParam("EPSI_ENTER", epsi_enter_);
+  private_nh_.setParam("CTE_EXIT", cte_exit_);
+  private_nh_.setParam("EPSI_EXIT", epsi_exit_);
+  private_nh_.setParam("DEBOUNCE_CYCLES", debounce_cycles_);
+
+  private_nh_.setParam("KAPPA_LOW_SPEED_THRESH", kappa_low_speed_thresh_);
+  private_nh_.setParam("KAPPA_LOW_SPEED", kappa_low_speed_);
+
+  private_nh_.setParam("MIN_LOOKAHEAD", min_lookahead_);
+  private_nh_.setParam("MAX_LOOKAHEAD", max_lookahead_);
+  private_nh_.setParam("LOOKAHEAD_GAIN", lookahead_gain_);
+  private_nh_.setParam("LOOK_BACK_DIST", look_back_dist_);
+
+  private_nh_.setParam("path_source", path_source_);
+  private_nh_.setParam("global_array_topic", global_array_topic_);
+  private_nh_.setParam("planner_array_topic", planner_array_topic_);
+  private_nh_.setParam("PLAN_TIMEOUT", plan_timeout_);
+  private_nh_.setParam("localization_source", localization_source_);
+  private_nh_.setParam("lidar_odom_topic", lidar_odom_topic_);
+  private_nh_.setParam("vio_odom_topic", vio_odom_topic_);
+
+  ROS_INFO("Data will be saved to: %s", filename_.c_str());
+  ROS_INFO("State projection: %s, delay=%.3f sec",
+           use_state_projection_ ? "on" : "off", state_projection_delay_);
 
   ROS_INFO("MPC Planner initialized START");
   if (!initialize_) {
@@ -171,20 +399,23 @@ void MPCPlanner_path::initialize() {
     double rotate_tol_ = 0.5;    // 旋轉誤差
     double convert_offset_ = 0;  // 轉換偏移量
 
-    /*
-    解黎卡提方程式迭代次數
-    預測時間域:是指在每個控制週期內 模型預測控制器用來預測系統行為的時間範圍
-    而這個時間範圍由控制器在每個控制週期內向前預測的時間步數確定
-    例:如果在每個控制週期內預測未來5個時間步 那預測時間域就是從當前時刻開始
-    往後推5個時間步的時間範圍
-    控制時間域:在每個控制週期內 控制器用來計算最優控制輸入的時間範圍
-    其時間範圍 由控制週期和系統動態決定
-    控制時間域可能比預測時間域短
-    因為控制器只能在當下控制週期內計算出最優控制輸入 無法預測未來更遠的時間
-    */
+    // 解黎卡提方程式迭代次數
+    // 預測時間域:是指在每個控制週期內 模型預測控制器用來預測系統行為的時間範圍
+    //   而這個時間範圍由控制器在每個控制週期內向前預測的時間步數確定
+    //   例:如果在每個控制週期內預測未來5個時間步 那預測時間域就是從當前時刻開始
+    //   往後推5個時間步的時間範圍
+
+    // 控制時間域:在每個控制週期內 控制器用來計算最優控制輸入的時間範圍
+    //  其時間範圍 由控制週期和系統動態決定
+    //  控制時間域可能比預測時間域短
+    //  因為控制器只能在當下控制週期內計算出最優控制輸入 無法預測未來更遠的時間
+    //
+    // b1 simulation success
+    // p_ = 20;                    //預測時間域
+    // m_ = 2;                    //控制時域*/
 
     p_ = 45; // 40   //30             //預測時間域
-    m_ = 15; // 15       //8             //控制時域*/ ruruka
+    m_ = 15; // 15       //8             //控制時域*/
 
     // 權重矩陣：用於懲罰在進行路徑追蹤控制時的狀態誤差[x,y,theta,v]
 
@@ -204,15 +435,32 @@ void MPCPlanner_path::initialize() {
     R_.setZero();
     R_(0, 0) = 50; // 加速度變化率
     R_(1, 1) = 30; // 50 //方向盤變化率
+    // Steering-change weight, overridable from the launch file
+    private_nh_.param<double>("R_steer", R_(1, 1), R_(1, 1));
+    ROS_INFO("R_steer (steering change weight): %.1f", R_(1, 1));
 
     // 採樣時間
     double controller_frequency = 10;
     d_t_ = 1 / controller_frequency;
 
+    std::string wp_topic =
+        (path_source_ == "planner") ? planner_array_topic_ : global_array_topic_;
     global_path_sub =
-        nh_.subscribe("array_topic", 1000, &MPCPlanner_path::setPlan, this);
-    car_pose_sub = nh_.subscribe("/mpc_new_pose", 1000,
-                                 &MPCPlanner_path::computelocalpath, this);
+        nh_.subscribe(wp_topic, 1000, &MPCPlanner_path::setPlan, this);
+    ROS_INFO("MPC tracking source = %s (topic: %s)", path_source_.c_str(),
+             wp_topic.c_str());
+    if (planner_mode_) {
+      ROS_INFO("planner mode: forward only, no end-of-route stop, "
+               "path timeout = %.2f s",
+               plan_timeout_);
+    }
+    const std::string &pose_topic = (localization_source_ == "vio")
+                                        ? vio_odom_topic_
+                                        : lidar_odom_topic_;
+    car_pose_sub =
+        nh_.subscribe(pose_topic, 1000, &MPCPlanner_path::computelocalpath, this);
+    ROS_INFO("localization source = %s (%s)", localization_source_.c_str(),
+             pose_topic.c_str());
 
     local_path_to_matlab_pub =
         nh_.advertise<std_msgs::Float64MultiArray>("/local_path", 1000);
@@ -223,15 +471,17 @@ void MPCPlanner_path::initialize() {
     stop_signal_pub = nh_.advertise<std_msgs::Bool>("/stop_signal", 1000);
 
     start_id_pub = nh_.advertise<std_msgs::Int32>("/start_id", 1000);
-
-    cte_pub = nh_.advertise<std_msgs::Float64>("/cte_realtime", 1000);
-
+    vreal_sub = nh_.subscribe<std_msgs::Float64>(
+        "v_real", 1000, &MPCPlanner_path::vRealCallback, this);
     max_v_sub =
         nh_.subscribe("/max_v", 10, &MPCPlanner_path::maxVCallback, this);
     max_v_inc_sub = nh_.subscribe("/max_v_inc", 10,
                                   &MPCPlanner_path::maxVIncCallback, this);
     turn_sub = nh_.subscribe("turn_index", 10,
                              &MPCPlanner_path::turnIndexCallback, this);
+    steer_sub = nh_.subscribe("/steering_sensor", 10,
+                              &MPCPlanner_path::steerCallback, this);
+
     // point_sub = nh_.subscribe("split_point",
     // 10,&MPCPlanner_path::pointCallback, this);
 
@@ -250,10 +500,36 @@ void MPCPlanner_path::initialize() {
 void MPCPlanner_path::setPlan(const std_msgs::Float64MultiArrayConstPtr &msg) {
   global_path_x.clear();
   global_path_y.clear();
+  global_path_s_.clear();
 
   for (int i = 0; i < msg->data.size(); i += 2) {
     global_path_x.emplace_back(msg->data[i]);
     global_path_y.emplace_back(msg->data[i + 1]);
+  }
+
+  global_path_s_.resize(global_path_x.size(), 0.0);
+  for (size_t i = 1; i < global_path_x.size(); ++i) {
+    const double dx = global_path_x[i] - global_path_x[i - 1];
+    const double dy = global_path_y[i] - global_path_y[i - 1];
+    global_path_s_[i] = global_path_s_[i - 1] + std::hypot(dx, dy);
+  }
+
+  updateSlowZonePathIndices();
+
+  if (planner_mode_) {
+    // The planner replaces the whole path every 0.5 s and always starts it at
+    // the current vehicle pose, so indices carry no meaning across messages.
+    // last_start_id_ is a monotonic "never walk backwards" latch written for the
+    // static CSV route; leaving it set would pin start_id to a stale index of a
+    // path that no longer exists.
+    last_start_id_ = -1;
+
+    last_plan_stamp_ = ros::Time::now().toSec();
+    if (plan_timed_out_) {
+      ROS_INFO("planner path recovered after timeout; resuming");
+      plan_timed_out_ = false;
+      publishStopSignal(false);
+    }
   }
 
   std::cout << "global_path_x.size() = " << global_path_x.size() << std::endl;
@@ -262,7 +538,7 @@ void MPCPlanner_path::setPlan(const std_msgs::Float64MultiArrayConstPtr &msg) {
 
 void MPCPlanner_path::turnIndexCallback(const std_msgs::Int32::ConstPtr &msg) {
   turn_index_ = msg->data;
-  turn_index_ = 100000; // 66 30 調超大讓他不倒車
+  turn_index_ = 10000; // 66 30               調超大讓他不倒車
   ROS_INFO("turn point:%d", turn_index_);
 }
 
@@ -274,6 +550,19 @@ void MPCPlanner_path::maxVCallback(const std_msgs::Float64::ConstPtr &msg) {
 void MPCPlanner_path::maxVIncCallback(const std_msgs::Float64::ConstPtr &msg) {
   max_v_inc_ = msg->data;
   ROS_INFO("Updated max_v_inc_ to: %f", max_v_inc_);
+}
+
+void MPCPlanner_path::vRealCallback(const std_msgs::Float64::ConstPtr &msg) {
+  v_real = msg->data;
+  ROS_INFO("v_real: %f", v_real);
+  if (v_real == 0) {
+    v_real = 0.0001; // 避免除以零
+  }
+}
+
+void MPCPlanner_path::steerCallback(const std_msgs::Float32::ConstPtr &msg) {
+  steer_real = -(msg->data / 19.8) * (M_PI / 180.0);
+  ROS_INFO("steer_real: %f", steer_real);
 }
 
 void publishStopSignal(bool stop) {
@@ -291,46 +580,92 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
   py = msg->pose.pose.position.y;
 
   theta1 = tf2::getYaw(msg->pose.pose.orientation);
+  // theta1 = theta1 - M_PI/3;
   vx = msg->twist.twist.linear.x;
   vy = msg->twist.twist.linear.y;
-  omega = msg->twist.twist.angular.z;
 
-  double v_body = std::cos(theta1) * vx + std::sin(theta1) * vy;
+  double v_body = v_real;
 
+  double offset = -0.5;
+  px = px + offset * cos(theta1);
+  py = py + offset * sin(theta1);
+
+  omega = v_body * tan(u_delta) / L;
   // double vt = std::hypot(vx,vy);
   double vt = v_body;
 
   theta = regularizeAngle(theta1);
 
-  double mpc_px = px;
-  double mpc_py = py;
-  double mpc_theta = theta;
+  // Compensate actuator/sensing delay by projecting state to the future.
+  double px_proj = px;
+  double py_proj = py;
+  double theta_proj = theta;
+  const double delay_s = std::max(0.0, state_projection_delay_);
 
-  // 延遲補償
-  projectStateForward(px, py, theta, v_body, omega, latency_compensation_sec,
-                      mpc_px, mpc_py, mpc_theta);
+  if (use_state_projection_ && delay_s > 1e-4) {
+    double delta_proj = std::isfinite(steer_real) ? steer_real : u_delta;
+    delta_proj = std::clamp(delta_proj, -max_delta_, max_delta_);
+    double omega_proj = v_body * std::tan(delta_proj) / L;
 
-  next_px = mpc_px + vt * cos(mpc_theta) * d_t_;
-  next_py = mpc_py + vt * sin(mpc_theta) * d_t_;
+    if (std::fabs(omega_proj) < 1e-6) {
+      px_proj += v_body * std::cos(theta_proj) * delay_s;
+      py_proj += v_body * std::sin(theta_proj) * delay_s;
+    } else {
+      double theta_next = theta_proj + omega_proj * delay_s;
+      px_proj +=
+          (v_body / omega_proj) * (std::sin(theta_next) - std::sin(theta_proj));
+      py_proj += -(v_body / omega_proj) *
+                 (std::cos(theta_next) - std::cos(theta_proj));
+      theta_proj = theta_next;
+    }
+
+    theta_proj = regularizeAngle(theta_proj);
+  }
+
+  next_px = px + vt * cos(theta) * d_t_;
+  next_py = py + vt * sin(theta) * d_t_;
 
   base_odom.twist.twist.linear.x = v_body;
   base_odom.twist.twist.linear.y = 0;
   base_odom.twist.twist.angular.z = omega;
 
-  double delta = atan(base_odom.twist.twist.angular.z * L / vt);
-  //info
+  double delta = atan(omega * L / vt);
+
   std::cout << "car_x = " << px << std::endl;
   std::cout << "car_y = " << py << std::endl;
   std::cout << "car_theta = " << theta << std::endl;
-  std::cout << "compensated_x = " << mpc_px << std::endl;
-  std::cout << "compensated_y = " << mpc_py << std::endl;
-  std::cout << "compensated_theta = " << mpc_theta << std::endl;
   std::cout << "car_vel_x = " << vx << std::endl;
   std::cout << "car_vel_y = " << vy << std::endl;
   std::cout << " delta = " << delta << std::endl;
+  std::cout << " projected_x = " << px_proj << std::endl;
+  std::cout << " projected_y = " << py_proj << std::endl;
+  std::cout << " projected_theta = " << theta_proj << std::endl;
 
   double nearest_distance =
       999; // declare the double variable "nearest_distance" is 100
+
+  // Planner path freshness. The planner republishes every 0.5 s; if it stalls
+  // (GPU hang, crashed node, camera dropout) the last path keeps looking valid
+  // because it lives in the odom frame, and the vehicle would happily drive to
+  // the far end of a 3 s prediction that is now seconds out of date. Command a
+  // stop instead. Steering is held rather than zeroed: snapping the wheels
+  // straight mid-corner is worse than freezing them while the vehicle slows.
+  if (planner_mode_ && last_plan_stamp_ >= 0.0 &&
+      (ros::Time::now().toSec() - last_plan_stamp_) > plan_timeout_) {
+    if (!plan_timed_out_) {
+      ROS_WARN("planner path stale for > %.2f s; commanding stop",
+               plan_timeout_);
+      plan_timed_out_ = true;
+      publishStopSignal(true);
+    }
+
+    std_msgs::Float64MultiArray stop_cmd;
+    stop_cmd.data.emplace_back(0.0);      // u_a
+    stop_cmd.data.emplace_back(u_delta);  // hold the last steering command
+    stop_cmd.data.emplace_back(0.0);      // v_ref
+    mpc_result_pub.publish(stop_cmd);
+    return;
+  }
 
   if (global_path_x.size() != 0) {
 
@@ -338,16 +673,17 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     const int GUARD = 3;       // 轉折點前保留幾個索引，避免沾到倒退段
     const size_t WINDOW = 200; // 單次最近點搜尋窗口（依路徑密度調整）
 
-    // === 投影/模式狀態（全域或成員變數，請視你的架構放置） ===
-
-    static int proj_idx = 0; // 上一次投影索引
-
     // === 先決定本輪搜尋範圍 ===
     size_t begin = (last_start_id_ < 0) ? 0 : (size_t)last_start_id_;
     size_t end = std::min(begin + WINDOW, global_path_x.size());
 
-    // 未進入倒退：把 end 限制在 turn_index_-GUARD 以前
-    if (!reversed_mode) {
+    if (planner_mode_) {
+      // Forward-only: there is no turn point to split the path around, and the
+      // 7-point path is far shorter than WINDOW, so just scan all of it.
+      begin = 0;
+      end = global_path_x.size();
+    } else if (!reversed_mode) {
+      // 未進入倒退：把 end 限制在 turn_index_-GUARD 以前
       size_t cap = (turn_index_ > GUARD) ? (size_t)(turn_index_ - GUARD) : 0;
       if (cap < end)
         end = cap; // 上限：最多掃到 turn_index_-GUARD
@@ -367,8 +703,8 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     int candidate_id = (int)begin;
 
     for (size_t i = begin; i < end; ++i) {
-      double dx = global_path_x[i] - mpc_px;
-      double dy = global_path_y[i] - mpc_py;
+      double dx = global_path_x[i] - px_proj;
+      double dy = global_path_y[i] - py_proj;
       double dist = std::hypot(dx, dy);
       if (dist < nearest_distance) {
         nearest_distance = dist;
@@ -389,26 +725,20 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     start_id = candidate_id;
     last_start_id_ = start_id; // 供下一回合使用
 
-    // === 切換時鎖定到轉折點（避免剛切換又被拉回前進段） ===
-    if (!reversed_mode && proj_idx >= turn_index_) {
-      // 在你啟動倒退的那一刻才把 reversed_mode 置為 true（外部條件判斷）
-      proj_idx = turn_index_; // 鎖到轉折點
-    }
-    if (reversed_mode && proj_idx < turn_index_) {
-      proj_idx = turn_index_;
-    }
-
     // 清空/重排路徑容器（原程式保持）
     org_wp_rearange_waypoint_x.clear();
     org_wp_rearange_waypoint_y.clear();
 
-    // ROS_INFO("starting_waypoint_for mpc is: %d", start_id); //info
+    ROS_INFO("starting_waypoint_for mpc is: %d", start_id);
 
     if (start_id < 0) {
       start_id = 0;
     }
 
-    if (start_id >= global_path_x.size() - 2) {
+    // End of route. Only meaningful for the static CSV path: the planner's last
+    // point is the far end of a rolling 3 s prediction, not a destination, so
+    // reaching it must not stop the vehicle or kill the node.
+    if (!planner_mode_ && start_id >= global_path_x.size() - 2) {
       ROS_INFO("finish");
       publishStopSignal(true); // 發布停止訊號
       ros::shutdown();         // 結束 ROS 節點
@@ -424,14 +754,14 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     //---------NEW calculate cte & epsi START---------
 
     // 1. 車輛全局位置
-    Eigen::Vector2d vehiclePos(mpc_px, mpc_py);
+    Eigen::Vector2d vehiclePos(px_proj, py_proj);
 
     // 2. 在全局路徑中找出車輛位置的投影點（用相鄰點線段近似參考曲線）
     double minDistance = 1e6;
     int nearestIndex = -1;
-    static int last_nearest_index = 0;
     Eigen::Vector2d projection; // 投影點
     double refHeading = 0.0;    // 局部路徑切線方向
+    double nearest_t = 0.0;     // projection ratio on the nearest segment
     Eigen::Vector2d p2(0, 0);
 
     size_t Y = global_path_x.size();
@@ -443,7 +773,11 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     size_t i_end = Y - 1; // 會掃描 [i_begin, i_end) 的線段 i..i+1
 
     const double V_EPS = 0.05; // 死區，避免 0 附近抖動
-    if (vt > V_EPS) {
+    if (planner_mode_) {
+      // Forward-only: scan every segment of the 7-point path.
+      i_begin = 0;
+      i_end = Y - 1;
+    } else if (vt > V_EPS) {
       // 前進：只找 turn_index_ 之前的線段
       i_begin = 0;
       i_end = (turn_index_ > 0) ? (size_t)turn_index_
@@ -480,12 +814,32 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
         projection = proj;
         refHeading = std::atan2(v.y(), v.x());
         nearestIndex = (int)i;
+        nearest_t = t;
       }
     }
 
-    if (nearestIndex > last_nearest_index) {
-      last_nearest_index = nearestIndex;
+    // Blend the segment heading with its neighbour by the projection ratio so
+    // the reference heading changes continuously across waypoints instead of
+    // stepping at each vertex (the step made epsi jump and the steering chatter).
+    // First half of a segment blends with the previous one, second half with
+    // the next; at a vertex both sides give the average of the two headings.
+    if (nearestIndex >= 0) {
+      auto segHeading = [&](int k) {
+        return std::atan2(global_path_y[k + 1] - global_path_y[k],
+                          global_path_x[k + 1] - global_path_x[k]);
+      };
+      if (nearest_t < 0.5 && nearestIndex - 1 >= (int)i_begin) {
+        double h_prev = segHeading(nearestIndex - 1);
+        refHeading = regularizeAngle(
+            h_prev + regularizeAngle(refHeading - h_prev) * (nearest_t + 0.5));
+      } else if (nearest_t >= 0.5 && nearestIndex + 1 < (int)i_end) {
+        double h_next = segHeading(nearestIndex + 1);
+        refHeading = regularizeAngle(
+            refHeading +
+            regularizeAngle(h_next - refHeading) * (nearest_t - 0.5));
+      }
     }
+
     // 3. 計算橫向誤差 d（正負依據車輛在參考曲線哪側
     double pi_offset = 0.0;
     if (reversed_mode && v_body < 0) {
@@ -505,20 +859,19 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     cte_real = cte;
 
     // ===== 反車鎖存與負速參考 =====
-    double epsi = regularizeAngle(mpc_theta - refHeading_adj);
+    double epsi = regularizeAngle(theta_proj - refHeading_adj);
     if (abs(epsi) > 3) {
       epsi = 0;
     }
 
-    // cte 的絕對值過大時限制在 ±1
-    //  if (fabs(cte) > 1) {
-    //    cte = 1 * (cte > 0 ? 1.0 : -1.0);
-    //  }
+    if (fabs(cte) > 1) {
+      cte = 1 * (cte > 0 ? 1.0 : -1.0);
+    }
 
     // 輸出調試信息
-    // ROS_INFO(
-    //     "Frenet: Projection=(%.3f, %.3f), d=%.3f, refHeading=%.3f, epsi=%.3f",
-    //     projection.x(), projection.y(), cte, refHeading, epsi);//info
+    ROS_INFO(
+        "Frenet: Projection=(%.3f, %.3f), d=%.3f, refHeading=%.3f, epsi=%.3f",
+        projection.x(), projection.y(), cte, refHeading, epsi);
 
     // ----- 使用 Frenet 誤差組成 MPC 的狀態誤差 -----
     // 此處的設計會依你的 MPC 模型而定，下面僅作為一個範例
@@ -526,7 +879,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     // 這裡我們直接用投影點與 refHeading 作為目標（你也可以根據 d 與 epsi
     // 設計誤差向量） 參數設定
     // ====== Velocity Planning with Mirror-Line Pause Logic ======
-    static double alpha = 0.1;     // EMA 平滑係數 0.15
+    static double alpha = 0.1;     // EMA 平滑係數
     static double prev_v_ref = vt; // 上一時刻輸出速度
     static double last_v_ref = vt; // 計算 a_ref 用
 
@@ -601,211 +954,51 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
       return kappa;
     };
 
-    //----------------------------------------------------
-    // 在曲率計算完或建立路徑切線角之後加入這段
-    std::vector<double> theta_ref(global_path_x.size(), 0.0);
-    for (size_t i = 1; i + 1 < global_path_x.size(); ++i) {
-      double dx = global_path_x[i + 1] - global_path_x[i - 1];
-      double dy = global_path_y[i + 1] - global_path_y[i - 1];
-      theta_ref[i] = std::atan2(dy, dx);
-    }
-
-    // Unwrap：確保相鄰角度連續，避免 ±π 跳變
-    for (size_t i = 1; i < theta_ref.size(); ++i) {
-      double diff = theta_ref[i] - theta_ref[i - 1];
-      if (diff > M_PI)
-        theta_ref[i] -= 2.0 * M_PI;
-      if (diff < -M_PI)
-        theta_ref[i] += 2.0 * M_PI;
-    }
-
     //=================================================================
-    int M = 8; // 4  mirror_back4  //12 for 0.2m間隔  //5 for 0.5m間隔
-               // //轉彎的時候看後N個路徑點的方向盤角度做角度平均
-    double kappa_sum = 0.0;
-
-    int steer_lookahead = 1; // p4 2
-
-    for (int j = 0; j < M; ++j) {
-      int ii = std::min(nearestIndex + steer_lookahead + j,
-                        (int)global_path_x.size() - 1);
-      kappa_sum += computeKappaAt(ii);
-    }
-    kappa_avg_steering = kappa_sum / double(M);
-    //=================================================================
-
-    // moria
-    // ==========================================
-    // --- 依照「曲率大小」動態調整看前方的點數 M ---
-    // ==========================================
-
-    // int steer_lookahead = 1; // 往前預視的起始偏移量
-
-    // // 1. 先探測車頭前方的「局部最大曲率」
-    // // 看前方最近 3 個點，抓出最大的彎度(取絕對值)，避免單一雜訊干擾
-    // double local_max_kappa = 0.0;
-    // for (int k = 0; k < 3; ++k) {
-    //     int check_idx = std::min(nearestIndex + steer_lookahead + k,
-    //     (int)global_path_x.size() - 1); local_max_kappa =
-    //     std::max(local_max_kappa, std::fabs(computeKappaAt(check_idx)));
-    // }
-
-    // // 2. 設定 M 的「天花板」與「地板」 (這兩個數字你可以自由微調)
-    // int M_max = 13;  // 直道時，最多看 18 個點 (看很遠，保持直行穩定)
-    // int M_min = 5;   // 急彎時，最少看 5 個點 (看很近，緊貼彎角不提早回正)
-
-    // // 設定多彎算「急彎」(例如曲率達到 0.15 rad/m 就視為最急的彎)
-    // double kappa_threshold = 0.18;
-
-    // // 計算彎度比例 (0.0 代表全直，1.0 代表達到急彎門檻)
-    // double kappa_ratio = std::min(local_max_kappa / kappa_threshold, 1.0);
-
-    // // 3. 線性內插計算當下的「動態點數 M」
-    // // 邏輯：曲率越大(kappa_ratio 越接近 1)，M
-    // 會被扣得越多(變小)；曲率越小，M 越大 int dynamic_M = M_max -
-    // static_cast<int>(std::round(kappa_ratio * (M_max - M_min)));
-
-    // // 防呆機制，確保 dynamic_M 絕對落在 M_min 到 M_max 之間
-    // dynamic_M = std::max(M_min, std::min(M_max, dynamic_M));
-
-    // // 4. 依照算出來的 dynamic_M，去加總未來的方向盤曲率
+    // int M = 8; // 4  mirror_back4  //12 for 0.2m間隔  //5 for 0.5m間隔
+    //            // //轉彎的時候看後N個路徑點的方向盤角度做角度平均
     // double kappa_sum = 0.0;
-    // int valid_points_count = 0;
 
-    // for (int j = 0; j < dynamic_M; ++j) {
+    // int steer_lookahead = 1; // p4 2
+
+    // for (int j = 0; j < M; ++j) {
     //   int ii = std::min(nearestIndex + steer_lookahead + j,
-    //   (int)global_path_x.size() - 1);
-
+    //                     (int)global_path_x.size() - 1);
     //   kappa_sum += computeKappaAt(ii);
-    //   valid_points_count++;
-
-    //   // 如果已經讀到陣列最後一個點，提早結束
-    //   if (ii == (int)global_path_x.size() - 1) {
-    //     break;
-    //   }
     // }
+    // kappa_avg_steering = kappa_sum / double(M);
+    
+    int M_back = 0;  // 車子後方的路徑點數量
+    int M_front = 8; // 車子前方的路徑點數量
 
-    // // 防呆除以零
-    // kappa_avg_steering = kappa_sum / std::max(1.0,
-    // double(valid_points_count));
-    // ==========================================
+    int steer_lookahead = 0;
+    int max_dist = std::max(M_back, M_front);
 
-    // int steer_lookahead = 0; // 往前預視的起始偏移量
+    // Weighted average of the curvature over a window around one path point:
+    // the closer a point is (smaller |j|), the higher its weight.
+    auto windowKappa = [&](int base) {
+      double kappa_weighted_sum = 0.0;
+      double weight_sum = 0.0;
+      for (int j = -M_back; j <= M_front; ++j) {
+        int ii = std::clamp(base + steer_lookahead + j, 0,
+                            (int)global_path_x.size() - 1);
+        double weight = double(max_dist + 1 - std::abs(j));
+        kappa_weighted_sum += weight * computeKappaAt(ii);
+        weight_sum += weight;
+      }
+      return kappa_weighted_sum / weight_sum;
+    };
 
-    // // 1. 取得當前車速 (取絕對值，讓倒車也能適用相同的預視邏輯)
-    // double current_speed = std::abs(vt);
-
-    // // 2. 設定 M 的「天花板」與「地板」 (這兩個數字你可以自由微調)
-    // int M_max = 15;  // 高速時，最多看 15 個點 (看比較遠，提早反應，防畫龍)
-    // int M_min = 8;   // 低速時，最少看 5 個點
-    // (看比較近，貼死彎角，不提早切西瓜)
-
-    // // 3. 設定速度的「上下限門檻」 (單位: m/s)
-    // double v_low  = 2.0; // 當車速低於 1.0 m/s，直接使用 M_min
-    // double v_high = 3.0; // 當車速高於 3.0 m/s，直接使用 M_max
-
-    // // 4. 計算速度比例 (0.0 代表低速，1.0 代表高速)
-    // double speed_ratio = (current_speed - v_low) / (v_high - v_low);
-
-    // // 限制比例範圍在 0.0 到 1.0 之間
-    // speed_ratio = std::clamp(speed_ratio, 0.0, 1.0);
-
-    // // 5. 線性內插計算當下的「動態點數 M」
-    // // 邏輯：速度越快 (speed_ratio 越接近 1)，M 就越大
-    // int dynamic_M = M_min + static_cast<int>(std::round(speed_ratio * (M_max
-    // - M_min)));
-
-    // // 防呆機制，確保 dynamic_M 絕對落在 M_min 到 M_max 之間
-    // dynamic_M = std::max(M_min, std::min(M_max, dynamic_M));
-
-    // // 6. 依照算出來的 dynamic_M，去加總未來的方向盤曲率
-    // double kappa_sum = 0.0;
-    // int valid_points_count = 0;
-
-    // for (int j = 0; j < dynamic_M; ++j) {
-    //   int ii = std::min(nearestIndex + steer_lookahead + j,
-    //   (int)global_path_x.size() - 1);
-
-    //   kappa_sum += computeKappaAt(ii);
-    //   valid_points_count++;
-
-    //   // 如果已經讀到陣列最後一個點，提早結束
-    //   if (ii == (int)global_path_x.size() - 1) {
-    //     break;
-    //   }
-    // }
-
-    // // 防呆除以零
-    // kappa_avg_steering = kappa_sum / std::max(1.0,
-    // double(valid_points_count));
-
-    // ==========================================
-    // --- 修改後的設計：看前方固定「物理距離」 ---2026/03/31
-    // ==========================================
-
-    // int steer_lookahead = 1; // 往前預視的起始偏移量
-
-    // // 1. 先探測車頭前方的「局部最大曲率」
-    // // 為了避免單一點的雜訊，我們看前方最近 3 個點，抓出最大的彎度(取絕對值)
-    // double local_max_kappa = 0.0;
-    // for (int k = 0; k < 3; ++k) {
-    //     int check_idx = std::min(nearestIndex + steer_lookahead + k,
-    //     (int)global_path_x.size() - 1); local_max_kappa =
-    //     std::max(local_max_kappa, std::fabs(computeKappaAt(check_idx)));
-    // }
-
-    // // 2. 設定預視距離的「天花板」與「地板」 (你可以微調這兩個數字)
-    // double max_lookahead_dist = 3.5;  // 直道時，最遠看 4.0 公尺
-    // (保持直行穩定，不畫龍) double min_lookahead_dist = 2.5;  //
-    // 急彎時，最近看 2.0 公尺 (精準貼死彎角，不提早回正)
-
-    // // 設定多彎算「急彎」(例如曲率達到 0.3 rad/m 就視為最急的彎)
-    // double kappa_threshold = 0.2;
-
-    // // 計算彎度比例 (0.0 代表全直，1.0 代表達到急彎門檻)
-    // double kappa_ratio = std::min(local_max_kappa / kappa_threshold, 1.0);
-
-    // // 3. 線性內插計算當下的「目標預視距離」
-    // // 邏輯：曲率越大(kappa_ratio 越接近 1)，看越近；曲率越小，看越遠
-    // double target_lookahead_dist_m = max_lookahead_dist - kappa_ratio *
-    // (max_lookahead_dist - min_lookahead_dist);
-
-    // // 4. 依照算出來的距離，去加總未來的方向盤曲率
-    // double kappa_sum = 0.0;
-    // int valid_points_count = 0;
-    // double accumulated_dist = 0.0;
-
-    // for (int j = 0; j < 50; ++j) {
-    //   int curr_idx = std::min(nearestIndex + steer_lookahead + j,
-    //   (int)global_path_x.size() - 1);
-
-    //   // 計算累計走過的物理距離
-    //   if (j > 0) {
-    //     int prev_idx = std::min(nearestIndex + steer_lookahead + j - 1,
-    //     (int)global_path_x.size() - 1); double dx = global_path_x[curr_idx] -
-    //     global_path_x[prev_idx]; double dy = global_path_y[curr_idx] -
-    //     global_path_y[prev_idx]; accumulated_dist += std::hypot(dx, dy);
-    //   }
-
-    //   // 當累計距離超過動態算出的 target_lookahead_dist_m，就停止加總
-    //   if (accumulated_dist > target_lookahead_dist_m) {
-    //     break;
-    //   }
-
-    //   // 注意：這裡不取絕對值，因為方向盤有分左轉(+)右轉(-)
-    //   kappa_sum += computeKappaAt(curr_idx);
-    //   valid_points_count++;
-
-    //   if (curr_idx == (int)global_path_x.size() - 1) {
-    //     break;
-    //   }
-    // }
-
-    // // 防呆除以零
-    // kappa_avg_steering = kappa_sum / std::max(1.0,
-    // double(valid_points_count));
-    //=================================================================================
-
+    // The window would jump by a whole point every time nearestIndex advances,
+    // which made delta_d step and the steering chatter. Interpolate between the
+    // window at this point and at the next one by the projection ratio, so the
+    // feedforward curvature varies continuously along the path.
+    kappa_avg_steering =
+        (1.0 - nearest_t) * windowKappa(nearestIndex) +
+        nearest_t * windowKappa(std::min(nearestIndex + 1,
+                                         (int)global_path_x.size() - 1));
+    // kappa_avg_steering = kappa_sum / double(M_back + M_front);
+    
     // ==========================================
     // 速度規劃用(曲率)
     // ==========================================
@@ -813,8 +1006,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     double max_future_kappa = 0.0;
 
     // -------------根據速度動態調整 look ahead 距離(20250108)-------------
-    double min_lookahead =
-        10.0; // 最少看 15 點 (7.5m) -> 低速時反應快 //15  //p4 5
+    double min_lookahead = 10.0; // 最少看 15 點 (7.5m) -> 低速時反應快 //15  //p4 5
     double max_lookahead = 30.0;  // 最多看 50 點 (25m) -> 高速時安全 //50
     double lookahead_gain = 10.0; // 速度每增加 1m/s，多看 10 點 10 //p4 10
 
@@ -826,8 +1018,8 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
                                std::min(look_ahead_dist, (int)max_lookahead));
     // // ----------------------------------------------------------------
 
-    for (int k = 0; k < look_ahead_dist; ++k) {
-      int ii = std::min(nearestIndex + k, (int)global_path_x.size() - 1);
+   for (int k = -look_back_dist_; k < look_ahead_dist; ++k) {
+      int ii = std::clamp(nearestIndex + k, 0, (int)global_path_x.size() - 1);
       double k_temp = std::fabs(computeKappaAt(ii));
 
       // 找出未來這段路「最彎」的那個值
@@ -839,9 +1031,16 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
         std::max(std::fabs(kappa_avg_steering), max_future_kappa);
 
     // 2. 狀態機轉換
+    // The APPROACH/DWELL/RESUME states exist to pause at the CSV route's turn
+    // point before reversing. planner mode is forward-only and has no turn
+    // point, so it is pinned to CRUISE — otherwise a stray /turn_index message
+    // would drive it into a 2 s DWELL stop against a path that has no such point.
+    if (planner_mode_) {
+      vel_state = CRUISE;
+    }
     switch (vel_state) {
     case CRUISE:
-      if (remain_to_turn <= K_slow && remain_to_turn > 0)
+      if (!planner_mode_ && remain_to_turn <= K_slow && remain_to_turn > 0)
         vel_state = APPROACH;
       break;
     case APPROACH:
@@ -877,16 +1076,18 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     //     v_allowed = v_max_ref - f * (v_max_ref - v_min_ref);
     // } 舊的
 
+    // 1. 取得當前車速 (絕對值)
     double current_v = std::abs(vt);
 
-    double v_slow_bound = 2.5; // 低速區間 (m/s) -> 在此速度以下視為低速
-    double v_fast_bound = 2.9; // 高速區間 (m/s) -> 在此速度以上視為高速
+    // 2. 定義速度區間 (根據你的車輛極限設定)
+    double v_slow_bound = 1.6; // 低速區間 (m/s) -> 在此速度以下視為低速 1.6
+    double v_fast_bound = 2.3; // 高速區間 (m/s) -> 在此速度以上視為高速 2.3
 
     // 3. 定義門檻區間 (核心設定)
     // 低速時 (Loose)：容忍度高 (0.02)，忽略路徑抖動，利於出彎加速
     // 高速時 (Strict)：容忍度低 (0.005)，對彎道超敏感，確保入彎前提早煞車
-    double k_thresh_loose = 0.01;   // 0.02
-    double k_thresh_strict = 0.005; // 0.005
+    double k_thresh_loose = 0.09;   // 0.01    0.075
+    double k_thresh_strict = 0.005; // 0.005 ：））
 
     // 4. 計算速度比例 (0.0 ~ 1.0)
     double speed_ratio =
@@ -895,8 +1096,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
 
     // 5. 線性插值計算「動態 k_min」
     // 速度越快 -> ratio越接近1 -> 減去越多 -> 門檻越小 (越嚴格)
-    double k_min_dynamic =
-        k_thresh_loose - speed_ratio * (k_thresh_loose - k_thresh_strict);
+    double k_min_dynamic = k_thresh_loose - speed_ratio * (k_thresh_loose - k_thresh_strict);
 
     // 6. 設定 k_max (減速區間寬度)
     // 建議 k_max 保持比 k_min 大一個固定值 (例如 0.05)，維持一致的煞車手感
@@ -918,10 +1118,16 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     // (選用) 用於除錯，觀察門檻變化
     // ROS_INFO("V:%.2f, K_Thresh:%.3f, K_Speed:%.3f", current_v, k_min_dynamic,
     // kappa_for_speed);
+    
+    double effective_v_min_ref = v_min_ref;
+    // if (kappa_for_speed > kappa_low_speed_thresh_) {
+    //   v_allowed = std::min(v_allowed, kappa_low_speed_);
+    //   effective_v_min_ref = std::min(effective_v_min_ref, kappa_low_speed_);
+    // }
 
-    if (cte_current > cte_threshold) {
+    if (std::abs(cte_current) > cte_threshold) {
       double fcte =
-          std::min((cte_current - cte_threshold) / cte_threshold, 1.0);
+          std::min((std::abs(cte_current) - cte_threshold) / cte_threshold, 1.0);
       v_allowed = std::max(v_min_ref, v_allowed * (1.0 - cte_scale * fcte));
     }
 
@@ -935,14 +1141,23 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     }
 
     // 6. 終點前 N 點緩降（加速版）
-    int N_end_slow = 30; // 終點前20m降速 //40
+    // Index-based, and only valid for the static CSV route. The planner path's
+    // last point is the far end of a rolling 3 s prediction that is replaced
+    // every 0.5 s, so treating it as a destination would brake the vehicle to a
+    // stop once per inference cycle.
+    int N_end_slow = 20; // 終點前20m降速 //40
     int remain_pts = (int)global_path_x.size() - nearestIndex;
-    bool endpoint_phase = (remain_pts <= N_end_slow);
+    bool endpoint_phase = (!planner_mode_ && remain_pts <= N_end_slow);
     if (endpoint_phase) {
       double ratio = double(remain_pts) / double(N_end_slow);
       double factor = std::pow(ratio, 3.0);
       v_allowed *= std::clamp(factor, 0.0, 1.0);
     }
+
+    const double v_allowed_before_slow_zone = v_allowed;
+    v_allowed =
+        applySlowZoneSpeedLimit(nearestIndex, px_proj, py_proj, v_allowed);
+    const bool slow_zone_phase = v_allowed < v_allowed_before_slow_zone - 1e-6;
 
     // 7. EMA 平滑 + Δv 限幅 (方案A)
     double raw_v = alpha * v_allowed + (1.0 - alpha) * prev_v_ref;
@@ -950,6 +1165,9 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     bool lower_phase =
         ((vel_state == CRUISE || vel_state == RESUME) && !endpoint_phase);
     double lower = lower_phase ? v_min_ref : 0.0;
+    if (slow_zone_phase) {
+      lower = std::min(lower, v_allowed);
+    }
     raw_v = std::clamp(raw_v, lower, v_max_ref);
     // double dv = std::clamp(raw_v - prev_v_ref, -max_delta_v, max_delta_v);
 
@@ -1004,20 +1222,17 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     //     prev_v_ref = v_ref; // 與後續 a_ref 計算保持一致
     // }
 
-    // ROS_INFO("nearest=%d  turn=%d  remain=%d  state=%d", nearestIndex,
-    //          turn_index_, turn_index_ - nearestIndex, vel_state);
+    ROS_INFO("nearest=%d  turn=%d  remain=%d  state=%d", nearestIndex,
+             turn_index_, turn_index_ - nearestIndex, vel_state);
 
     // 3. 用平均曲率做前饋轉向
     // double delta_d = std::atan(kappa_avg_steering * L);
     double sign_v = (v_ref >= 0.0) ? 1.0 : -1.0;
     double delta_d = sign_v * std::atan(kappa_avg_steering * L);
 
-    double ref_theta = refHeading + (reversed_mode ? M_PI : 0.0);
-
-    Eigen::Vector4d s(mpc_px, mpc_py, mpc_theta, v_body);
-    // Eigen::Vector4d s_d(projection.x(), projection.y(), ref_theta, v_ref);
+    Eigen::Vector4d s(px_proj, py_proj, theta_proj, v_body);
     Eigen::Vector4d s_d(projection.x(), projection.y(), refHeading_adj, v_ref);
-    Eigen::Vector2d p0(global_path_x[nearestIndex - 1],   //mimori
+    Eigen::Vector2d p0(global_path_x[nearestIndex - 1],
                        global_path_y[nearestIndex - 1]);
     Eigen::Vector2d p1(global_path_x[nearestIndex],
                        global_path_y[nearestIndex]);
@@ -1033,20 +1248,63 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
 
     double u_a = u[0];
 
-    double u_delta = anglarRegularization(base_odom, u[1]);
+    u_delta = anglarRegularization(base_odom, u[1]);
 
-    if (kappa_avg_steering <= 0.0002) {
-      if (fabs(cte) < 0.01 && fabs(epsi) < 0.01) {
-        // 認為誤差可忽略，直接把方向量清零
-        u_delta = 0.0;
+    // if (kappa_avg_steering <= 0.0002) {
+    //   if (fabs(cte) < 0.01 && fabs(epsi) < 0.01) {
+    //     // 認為誤差可忽略，直接把方向量清零
+    //     u_delta = 0.0;
+    //   }
+    // }
+
+    static bool in_deadband = false;
+    static int enter_counter = 0;
+    static double prev_u_delta = 0.0;
+
+    const double KAPPA_STRAIGHT = kappa_straight_;
+    static double locked_u_delta = 0.0;
+
+    const double CTE_ENTER = cte_enter_;
+    const double EPSI_ENTER = epsi_enter_; // 0.57度
+
+    const double CTE_EXIT = cte_exit_;   // 3.5 cm
+    const double EPSI_EXIT = epsi_exit_; // 1.43度
+
+    const int DEBOUNCE_CYCLES = debounce_cycles_; // 連續 N 幀滿足
+
+    if (!in_deadband) {
+      // if (kappa_avg_steering <= KAPPA_STRAIGHT && std::abs(cte) < CTE_ENTER
+      // &&
+      //     std::abs(epsi) < EPSI_ENTER) {
+      if (std::abs(cte) < CTE_ENTER && std::abs(epsi) < EPSI_ENTER) {
+        enter_counter++;
+        if (enter_counter >= DEBOUNCE_CYCLES) {
+          in_deadband = true;
+          enter_counter = 0;
+          locked_u_delta = prev_u_delta;
+        }
+      } else {
+        enter_counter = 0;
+      }
+    } else {
+      // if (kappa_avg_steering > KAPPA_STRAIGHT || std::abs(cte) > CTE_EXIT ||
+      //     std::abs(epsi) > EPSI_EXIT) {
+      if (std::abs(cte) > CTE_EXIT || std::abs(epsi) > EPSI_EXIT) {
+        in_deadband = false;
       }
     }
 
-    // 加入 EMA 濾波器讓 u_delta 平滑
-    static double alpha_steer = 0.92; // 轉向平滑係數，可依需求微調
-    static double prev_u_delta = 0.0;
-    u_delta = alpha_steer * u_delta + (1.0 - alpha_steer) * prev_u_delta;
+    if (in_deadband) {
+      u_delta = locked_u_delta; // hold the steering angle from deadband entry
+    }
+    // Track the last output so the deadband locks the current angle, not 0
     prev_u_delta = u_delta;
+
+    // 加入 EMA 濾波器讓 u_delta 平滑---isekai
+    // static double alpha_steer = 0.85; // 轉向平滑係數，可依需求微調 0.85
+    // u_delta = alpha_steer * u_delta + (1.0 - alpha_steer) * prev_u_delta;
+    // prev_u_delta = u_delta;
+
 
     du_p_ = Eigen::Vector2d(u_a - u_r[0], regularizeAngle(u_delta - u_r[1]));
     // double L = 1.66;
@@ -1066,22 +1324,19 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
 
     cmd_to_matlab.data.emplace_back(u_a);
     cmd_to_matlab.data.emplace_back(u_delta);
+    cmd_to_matlab.data.emplace_back(v_ref);
     cte_test.data.emplace_back(cte);
 
     ROS_INFO("-----------------------------------------------");
-    //info
-    // std::cout << "acceration = " << u_a << std::endl;
-    // std::cout << "steeringangle = " << u_delta << std::endl;
-    // std::cout << "theta = " << theta << std::endl;
-    // std::cout << " lateral error = \n" << cte << std::endl;
+
+    std::cout << "acceration = " << u_a << std::endl;
+    std::cout << "steeringangle = " << u_delta << std::endl;
+    std::cout << "theta = " << theta << std::endl;
+    std::cout << " lateral error = \n" << cte << std::endl;
 
     ros::Duration gan(0.001);
 
     mpc_result_pub.publish(cmd_to_matlab);
-
-    std_msgs::Float64 cte_msg;
-    cte_msg.data = cte;
-    cte_pub.publish(cte_msg);
 
     gan.sleep();
 
@@ -1092,28 +1347,26 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     //===========================csv不會覆蓋上一筆的數據========================
     // std::ofstream ofs(filename_, std::ios::app);
     // if (!ofs.is_open()) {
-    //   ROS_ERROR("Failed to open file: %s", filename_.c_str());
-    //   return;
+    // ROS_ERROR("Failed to open file: %s", filename_.c_str());
+    // return;
     // }
-    // // std::cout<<"kappa2 = \n"<< kappa <<std::endl;
+    // //std::cout<<"kappa2 = \n"<< kappa <<std::endl;
     // static bool header_written = false;
     // if (!header_written) {
-    //   ofs <<
-    //   "u_a,v_real,v_ref,u_delta,delta_d,px,py,theta1,cte,cte_real,epsi,"
-    //          "vx,vy,kappa,beta"
-    //       << std::endl;
-    //   header_written = true;
+    // ofs <<
+    // "u_a,v_real,v_ref,u_delta,delta_d,px,py,theta1,cte,cte_real,epsi,vx,vy,kappa,beta"
+    // << std::endl; header_written = true;
     // }
 
-    // ofs << std::fixed << std::setprecision(4) << u_a << "," << v_body << ","
-    //     << v_ref << "," << u_delta << "," << delta_d << "," << px << "," <<
-    //     py
-    //     << "," << theta1 << "," << cte << "," << cte_real << "," << epsi <<
-    //     ","
-    //     << vx << "," << vy << "," << kappa_avg_steering << "," << beta_1
-    //     << std::endl;
+    // ofs << std::fixed << std::setprecision(4)
+    // << u_a << ","<< v_body << "," << v_ref << "," << u_delta << ","<< delta_d
+    // << "," << px << "," << py << ","
+    // << theta1 << "," << cte << "," << cte_real << ","<< epsi << "," << vx <<
+    // ","
+    // << vy <<","<<kappa_avg_steering<< "," << beta_1<<std::endl;
 
     // ofs.close(); // 確保每次操作後關閉文件
+
     //=====================================================================
 
     //======================csv會覆蓋上一筆的數據================================
@@ -1129,7 +1382,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
       }
       // 寫入標題行
       ofs << "u_a,v_real,v_ref,u_delta,delta_d,px,py,theta1,cte,cte_real,epsi,"
-             "vx,vy,kappa,beta\n";
+             "vx,vy,kappa,beta,steer\n";
       first_write = false;
     } else {
       // 之後的寫入，使用 std::ios::app 模式（接續寫在同一份檔案的尾端）
@@ -1144,8 +1397,8 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     ofs << std::fixed << std::setprecision(4) << u_a << "," << v_body << ","
         << v_ref << "," << u_delta << "," << delta_d << "," << px << "," << py
         << "," << theta1 << "," << cte << "," << cte_real << "," << epsi << ","
-        << vx << "," << vy << "," << kappa_avg_steering << "," << beta_1
-        << std::endl;
+        << vx << "," << vy << "," << kappa_avg_steering << "," << beta_1 << ","
+        << steer_real << std::endl;
 
     ofs.close(); // 確保每次操作後關閉文件
     //=====================================================================
@@ -1235,7 +1488,7 @@ Eigen::Vector2d MPCPlanner_path::_mpcControl(Eigen::Vector4d s,
     // 大幅提高對橫向誤差(cte)的懲罰
     Q_dynamic(1, 1) = 800; // 原為 500
     // 大幅提高對航向誤差(epsi)的懲罰
-    Q_dynamic(2, 2) = 750; // 原為 300
+    Q_dynamic(2, 2) = 750; // 原為 400
   }
 
   // 3. 使用動態權重來產生最終的 Q 和 R 矩陣
@@ -1319,18 +1572,6 @@ Eigen::Vector2d MPCPlanner_path::_mpcControl(Eigen::Vector4d s,
   solver.data()->setLowerBound(lower);
   solver.data()->setUpperBound(upper);
 
-  // if (!solver.initSolver()) { //bug
-  //   ROS_ERROR("OSQP 初始化失敗");
-  //   return Eigen::Vector2d::Zero();
-  // }
-
-  // if (solver.solveProblem() != OsqpEigen::ErrorExitFlag::NoError) {
-  //   ROS_ERROR("OSQP 求解失敗");
-  //   return Eigen::Vector2d::Zero();
-  // }
-
-  // auto solution = solver.getSolution();
-
   if (!solver.initSolver()) {
     ROS_ERROR("OSQP 初始化失敗");
     return u_prev; // 安全機制：初始化失敗時維持上一幀動作
@@ -1341,15 +1582,14 @@ Eigen::Vector2d MPCPlanner_path::_mpcControl(Eigen::Vector4d s,
     return u_prev; // 安全機制：求解失敗時維持上一幀動作
   }
 
-  // ==================== 解法 1 放這裡 ====================
-  // 核心安全閥：檢查這題是不是「無解 (Infeasible)」
+  // Infeasiblility check
   if (solver.workspace()->info->status_val != OSQP_SOLVED) {
-    ROS_WARN("OSQP ", solver.workspace()->info->status_val);
-    return u_prev; // 安全機制：無解時，千萬不要讀取 solution，直接回傳上一次的安全油門/方向盤！
+    ROS_WARN("OSQP status: %d", (int)solver.workspace()->info->status_val);
+    return u_prev;
   }
-  // =======================================================
 
   auto solution = solver.getSolution();
+
 
   // 計算並回傳最終的控制指令 [加速度, 前輪轉角]
   Eigen::Vector2d u(solution[0] + du_p[0] + u_r[0],
@@ -1379,6 +1619,5 @@ int main(int argc, char **argv) {
   MPCPlanner_path mpc_path;
   mpc_path.MPCPlanner(&nh);
   ros::spin();
-
   return 0;
 }

@@ -291,6 +291,8 @@ void MPCPlanner_path::initialize() {
   private_nh_.param<double>("max_v_forward", max_v_forward_, max_v_forward_);
   ROS_INFO("Forward speed range: [%.2f, %.2f] m/s", min_v_forward_,
            max_v_forward_);
+  private_nh_.param<double>("max_delta_inc", max_delta_inc_, max_delta_inc_);
+  ROS_INFO("Max steering increment: %.4f rad/step", max_delta_inc_);
 
     // ---straight line deadband---isekai
   private_nh_.param<double>("KAPPA_STRAIGHT", kappa_straight_, 0.05);

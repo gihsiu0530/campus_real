@@ -2,6 +2,8 @@
 #include <ros/package.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <std_msgs/Bool.h>  // 引入 Bool 訊息類型
+#include <std_msgs/Float32.h>
+#include <std_msgs/Float64.h>
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <std_msgs/Int32.h>
@@ -105,6 +107,33 @@ int main(int argc, char** argv)
     std::string default_mirror_csv = ros::package::getPath("mpc_4state") + "/../../mirror_positions.csv";
     std::string mirror_csv_file;
     ros::NodeHandle("~").param<std::string>("mirror_csv_file", mirror_csv_file, default_mirror_csv);
+
+    // Emulate the real vehicle's sensors for mpc (mpc_back_test algorithm):
+    // speed on /v_real, steering wheel angle on /steering_sensor, and the pose
+    // reported at the LiDAR mount (lidar_offset ahead of the rear axle).
+    bool emulate_real_sensors;
+    double lidar_offset;
+    ros::NodeHandle("~").param("emulate_real_sensors", emulate_real_sensors, false);
+    ros::NodeHandle("~").param("lidar_offset", lidar_offset, 0.5);
+    // Stop the simulation once the vehicle has come to a standstill, so the
+    // run ends by itself and plot_cte.py writes its plot.
+    bool auto_stop;
+    double auto_stop_speed, auto_stop_duration;
+    ros::NodeHandle("~").param("auto_stop", auto_stop, false);
+    ros::NodeHandle("~").param("auto_stop_speed", auto_stop_speed, 0.02);
+    ros::NodeHandle("~").param("auto_stop_duration", auto_stop_duration, 5.0);
+    bool has_moved = false;
+    ros::Time slow_since(0);
+
+    ros::Publisher v_real_pub, steer_sensor_pub;
+    if (emulate_real_sensors) {
+        v_real_pub = nh.advertise<std_msgs::Float64>("/v_real", 10);
+        steer_sensor_pub = nh.advertise<std_msgs::Float32>("/steering_sensor", 10);
+        ROS_INFO("Emulating real sensors: /v_real, /steering_sensor, lidar_offset=%.2f m", lidar_offset);
+    } else {
+        lidar_offset = 0.0;
+    }
+
     std::ofstream csv_file(mirror_csv_file.c_str());
     if (!csv_file.is_open()) {
         ROS_ERROR("無法打開 %s 進行寫入！", mirror_csv_file.c_str());
@@ -168,8 +197,8 @@ int main(int argc, char** argv)
         nav_msgs::Odometry msg;
         msg.header.frame_id = "map";
         msg.header.stamp = ros::Time::now();
-        msg.pose.pose.position.x = x;
-        msg.pose.pose.position.y = y;
+        msg.pose.pose.position.x = x + lidar_offset * cos(theta);
+        msg.pose.pose.position.y = y + lidar_offset * sin(theta);
         msg.pose.pose.orientation.w = cos(theta / 2.0);
         msg.pose.pose.orientation.z = sin(theta / 2.0);
         msg.twist.twist.linear.x = v_x;
@@ -177,6 +206,17 @@ int main(int argc, char** argv)
         msg.twist.twist.angular.z = omega;
 
         curent_pose_to_mpc_pub.publish(msg);
+
+        if (emulate_real_sensors) {
+            std_msgs::Float64 v_msg;
+            v_msg.data = v;
+            v_real_pub.publish(v_msg);
+
+            // Inverse of mpc steerCallback: steer_real = -(data / 19.8) * pi / 180
+            std_msgs::Float32 steer_msg;
+            steer_msg.data = -delta * 180.0 / M_PI * 19.8;
+            steer_sensor_pub.publish(steer_msg);
+        }
 
         geometry_msgs::PoseStamped pose_stamped;
         pose_stamped.header.frame_id = "map";
@@ -224,6 +264,21 @@ int main(int argc, char** argv)
 
         // 顯示資訊
         ROS_INFO("x: %f, y: %f, theta: %f", x, y, theta);
+
+        if (auto_stop) {
+            if (std::fabs(v) > auto_stop_speed) {
+                has_moved = true;
+                slow_since = ros::Time(0);
+            } else if (has_moved) {
+                if (slow_since.isZero()) {
+                    slow_since = ros::Time::now();
+                } else if ((ros::Time::now() - slow_since).toSec() >= auto_stop_duration) {
+                    ROS_INFO("Vehicle stopped (|v| < %.3f m/s for %.1f s). Ending simulation.",
+                             auto_stop_speed, auto_stop_duration);
+                    break;
+                }
+            }
+        }
         
         loop_rate.sleep();
     }

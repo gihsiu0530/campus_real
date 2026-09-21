@@ -53,6 +53,8 @@
         <!-- Forward speed limits (m/s). Inside <node>: read from ~ namespace. -->
         <param name="min_v_forward" value="1.0" />
         <param name="max_v_forward" value="1.2" />
+        <!-- Max steering change per control step (rad) -->
+        <param name="max_delta_inc" value="0.0084" /> 0.0084
 
         <!-- Pose source for the MPC. "vio" requires path_source=planner (the
              CSV route is in the LiDAR map frame; otherwise the node logs an
