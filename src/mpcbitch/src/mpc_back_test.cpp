@@ -9,6 +9,8 @@
 #include <eigen3/Eigen/QR>
 #include <eigen3/unsupported/Eigen/KroneckerProduct>
 #include <eigen3/unsupported/Eigen/MatrixFunctions>
+#include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <geometry_msgs/PointStamped.h>
 #include <iostream>
@@ -31,6 +33,128 @@ ros::Publisher carla_control_pub;
 static double prev_theta = 0.0;
 static bool reversed_mode = false;
 double u_delta = 0;
+
+// ---- Speed profile (sim experiment, ~speed_profile) ----
+// The per-point path curvature is dominated by point-to-point noise, so the
+// curvature-threshold speed planner saw "curves" everywhere and never reached
+// max speed. With the profile enabled, a speed limit is precomputed for every
+// path point from a clean curvature and physical limits instead.
+static bool speed_profile_enabled = false;
+static int sp_kappa_baseline = 5;       // points on each side for curvature
+static int sp_window = 5;               // points on each side for the min envelope
+static double sp_a_lat = 0.6;           // max lateral acceleration (m/s^2)
+static double sp_steer_rate_frac = 0.5; // share of max_delta_inc for feedforward
+static double sp_a_acc = 0.15;          // m/s^2, below the MPC's 0.2 bound
+static double sp_a_dec = 0.15;          // m/s^2
+static std::vector<double> speed_profile_;
+// Feedforward steering from the same clean curvature (~clean_feedforward).
+static bool clean_ff_enabled = false;
+// Where to sample it, in path points ahead of the projection. 2.67 is the
+// centroid of the old 8-point weighted window (weights 9..1 over j = 0..8).
+static double clean_ff_lookahead = 2.67;
+static std::vector<double> clean_kappa_;
+
+// Speed-dependent feedforward lookahead (~ff_lookahead_time). The per-point
+// feedforward window (weights 9..1 over j = 0..8) looks 2.67 points (~1.9 m)
+// ahead, i.e. a fixed distance, so the faster the car the later it acts.
+// With a lookahead time the window is shifted to look v * time ahead instead,
+// never less than ~ff_lookahead_min metres.
+static double ff_lookahead_time = 0.0; // s, 0 = off (fixed 2.67 points)
+static double ff_lookahead_min = 1.87; // m
+
+// Waypoint smoothing (~path_smooth_window). The CSV waypoints carry ~1 cm of
+// lateral noise, which at 0.7 m spacing dominates the per-point curvature and
+// makes both the feedforward and the heading/CTE reference jitter.
+static int path_smooth_window = 0; // points on each side, 0 = off
+
+// Savitzky-Golay smoothing (quadratic fit over +-m points, evaluated at the
+// centre). A quadratic fit keeps curve peaks, unlike a moving average. The
+// window shrinks near the ends so the first and last points stay put.
+static std::vector<double> savitzkyGolay2(const std::vector<double> &v, int m) {
+  const int N = (int)v.size();
+  std::vector<double> out(v);
+  for (int i = 0; i < N; ++i) {
+    int r = std::min({i, N - 1 - i, m});
+    if (r < 2)
+      continue;
+    double norm = double((2 * r + 1) * (4 * r * r + 4 * r - 3));
+    double sum = 0.0;
+    for (int j = -r; j <= r; ++j)
+      sum += (3.0 * (3 * r * r + 3 * r - 1) - 15.0 * j * j) / norm * v[i + j];
+    out[i] = sum;
+  }
+  return out;
+}
+
+static double wrapAngle(double a) { return std::atan2(std::sin(a), std::cos(a)); }
+
+// Speed limit per path point: min(lateral-acceleration limit, steering-rate
+// limit), then a backward pass so braking starts early enough and a forward
+// pass for the acceleration limit.
+static std::vector<double>
+buildSpeedProfile(const std::vector<double> &xs, const std::vector<double> &ys,
+                  double v_min, double v_max, double max_delta_inc, double dt,
+                  double L) {
+  const int N = (int)xs.size();
+  std::vector<double> v(N, v_max);
+  if (N < 3)
+    return v;
+  const int k = std::max(1, sp_kappa_baseline);
+
+  // Curvature from the heading change over +-k points (noise averages out).
+  std::vector<double> kappa(N, 0.0), s(N, 0.0);
+  for (int i = 1; i < N; ++i)
+    s[i] = s[i - 1] + std::hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]);
+  for (int i = 0; i < N; ++i) {
+    int a = std::max(0, i - k), b = std::min(N - 1, i + k);
+    if (a == i || b == i)
+      continue;
+    double h1 = std::atan2(ys[i] - ys[a], xs[i] - xs[a]);
+    double h2 = std::atan2(ys[b] - ys[i], xs[b] - xs[i]);
+    double arc = s[b] - s[a];
+    if (arc > 1e-6)
+      kappa[i] = wrapAngle(h2 - h1) / (0.5 * arc);
+  }
+  // Ends have no full window: copy the nearest valid value.
+  for (int i = 0; i <= k && k + 1 < N; ++i)
+    kappa[i] = kappa[std::min(k + 1, N - 1)];
+  for (int i = std::max(0, N - k - 1); i < N; ++i)
+    kappa[i] = kappa[std::max(0, N - k - 2)];
+  clean_kappa_ = kappa;
+
+  // Feedforward steering angle and its change per metre.
+  std::vector<double> delta(N);
+  for (int i = 0; i < N; ++i)
+    delta[i] = std::atan(kappa[i] * L);
+  const double steer_rate = sp_steer_rate_frac * max_delta_inc / dt; // rad/s
+  for (int i = 0; i < N; ++i) {
+    int a = std::max(0, i - 1), b = std::min(N - 1, i + 1);
+    double ds = s[b] - s[a];
+    double ddelta_ds = ds > 1e-6 ? std::fabs(delta[b] - delta[a]) / ds : 0.0;
+    double v_curve = std::sqrt(sp_a_lat / std::max(std::fabs(kappa[i]), 1e-4));
+    double v_rate = steer_rate / std::max(ddelta_ds, 1e-5);
+    v[i] = std::clamp(std::min(v_curve, v_rate), v_min, v_max);
+  }
+  // Take the strictest limit within +-sp_window points. At a curve apex the
+  // curvature barely changes, so the steering-rate limit alone would let the
+  // speed rise mid-curve and drop again before the exit.
+  if (sp_window > 0) {
+    std::vector<double> raw = v;
+    for (int i = 0; i < N; ++i) {
+      int a = std::max(0, i - sp_window), b = std::min(N - 1, i + sp_window);
+      v[i] = *std::min_element(raw.begin() + a, raw.begin() + b + 1);
+    }
+  }
+  for (int i = N - 2; i >= 0; --i) {
+    double ds = s[i + 1] - s[i];
+    v[i] = std::min(v[i], std::sqrt(v[i + 1] * v[i + 1] + 2.0 * sp_a_dec * ds));
+  }
+  for (int i = 1; i < N; ++i) {
+    double ds = s[i] - s[i - 1];
+    v[i] = std::min(v[i], std::sqrt(v[i - 1] * v[i - 1] + 2.0 * sp_a_acc * ds));
+  }
+  return v;
+}
 
 // Defined further down, but setPlan needs it to clear the stop latch when the
 // planner path comes back after a timeout.
@@ -282,6 +406,23 @@ void MPCPlanner_path::initialize() {
 
   private_nh_.param<std::string>("save_filename", filename_,
                                  ros::package::getPath("mpcbitch") + "/../../mpcdata/real.csv");
+
+  // If ~save_dir is set, write to <save_dir>/sim_YYYYmmdd_HHMMSS.csv instead
+  // so each run keeps its own log (overrides ~save_filename).
+  std::string save_dir;
+  if (private_nh_.getParam("save_dir", save_dir) && !save_dir.empty()) {
+    std::error_code ec;
+    std::filesystem::create_directories(save_dir, ec);
+    if (ec) {
+      ROS_ERROR("Failed to create save_dir %s: %s", save_dir.c_str(),
+                ec.message().c_str());
+    }
+    char stamp[32];
+    std::time_t now = std::time(nullptr);
+    std::strftime(stamp, sizeof(stamp), "%Y%m%d_%H%M%S",
+                  std::localtime(&now));
+    filename_ = save_dir + "/sim_" + stamp + ".csv";
+  }
   private_nh_.param("use_state_projection", use_state_projection_,
                     true); // false 關閉
   private_nh_.param("state_projection_delay", state_projection_delay_, 0.5);
@@ -293,6 +434,30 @@ void MPCPlanner_path::initialize() {
            max_v_forward_);
   private_nh_.param<double>("max_delta_inc", max_delta_inc_, max_delta_inc_);
   ROS_INFO("Max steering increment: %.4f rad/step", max_delta_inc_);
+  private_nh_.param("speed_profile", speed_profile_enabled, false);
+  private_nh_.param("speed_profile_kappa_baseline", sp_kappa_baseline, 5);
+  private_nh_.param("speed_profile_window", sp_window, 5);
+  private_nh_.param("path_smooth_window", path_smooth_window, 0);
+  ROS_INFO("Path smoothing (Savitzky-Golay): %s (+-%d points)",
+           path_smooth_window > 0 ? "on" : "off", path_smooth_window);
+  private_nh_.param("ff_lookahead_time", ff_lookahead_time, 0.0);
+  private_nh_.param("ff_lookahead_min", ff_lookahead_min, 1.87);
+  ROS_INFO("Feedforward lookahead: %s", ff_lookahead_time > 0.0
+               ? "time-based" : "fixed 2.67 points");
+  if (ff_lookahead_time > 0.0)
+    ROS_INFO("  max(%.2f m, v * %.2f s)", ff_lookahead_min, ff_lookahead_time);
+  private_nh_.param("clean_feedforward", clean_ff_enabled, false);
+  private_nh_.param("clean_feedforward_lookahead", clean_ff_lookahead, 2.67);
+  ROS_INFO("Clean feedforward curvature: %s (lookahead %.2f points)",
+           clean_ff_enabled ? "on" : "off", clean_ff_lookahead);
+  private_nh_.param("speed_profile_a_lat", sp_a_lat, 0.6);
+  private_nh_.param("speed_profile_steer_rate_frac", sp_steer_rate_frac, 0.5);
+  private_nh_.param("speed_profile_a_acc", sp_a_acc, 0.15);
+  private_nh_.param("speed_profile_a_dec", sp_a_dec, 0.15);
+  ROS_INFO("Speed profile: %s (a_lat %.2f, steer_rate_frac %.2f, a_acc %.2f, "
+           "a_dec %.2f, kappa baseline %d, window %d)",
+           speed_profile_enabled ? "on" : "off", sp_a_lat, sp_steer_rate_frac,
+           sp_a_acc, sp_a_dec, sp_kappa_baseline, sp_window);
 
     // ---straight line deadband---isekai
   private_nh_.param<double>("KAPPA_STRAIGHT", kappa_straight_, 0.05);
@@ -416,6 +581,9 @@ void MPCPlanner_path::initialize() {
     R_.setZero();
     R_(0, 0) = 50; // 加速度變化率
     R_(1, 1) = 30; // 50 //方向盤變化率
+    // Steering-change weight, overridable from the launch file
+    private_nh_.param<double>("R_steer", R_(1, 1), R_(1, 1));
+    ROS_INFO("R_steer (steering change weight): %.1f", R_(1, 1));
 
     // 採樣時間
     double controller_frequency = 10;
@@ -485,6 +653,13 @@ void MPCPlanner_path::setPlan(const std_msgs::Float64MultiArrayConstPtr &msg) {
     global_path_y.emplace_back(msg->data[i + 1]);
   }
 
+  // Smooth the static CSV route once; every later step (projection, heading,
+  // CTE, feedforward, speed profile) then uses the same clean path.
+  if (path_smooth_window > 0 && !planner_mode_) {
+    global_path_x = savitzkyGolay2(global_path_x, path_smooth_window);
+    global_path_y = savitzkyGolay2(global_path_y, path_smooth_window);
+  }
+
   global_path_s_.resize(global_path_x.size(), 0.0);
   for (size_t i = 1; i < global_path_x.size(); ++i) {
     const double dx = global_path_x[i] - global_path_x[i - 1];
@@ -493,6 +668,14 @@ void MPCPlanner_path::setPlan(const std_msgs::Float64MultiArrayConstPtr &msg) {
   }
 
   updateSlowZonePathIndices();
+
+  // Static CSV route only: the planner's 7-point rolling path is too short for
+  // the +-kappa_baseline curvature and is replaced every 0.5 s.
+  if ((speed_profile_enabled || clean_ff_enabled) && !planner_mode_) {
+    speed_profile_ = buildSpeedProfile(global_path_x, global_path_y,
+                                       min_v_forward_, max_v_forward_,
+                                       max_delta_inc_, d_t_, 1.66);
+  }
 
   if (planner_mode_) {
     // The planner replaces the whole path every 0.5 s and always starts it at
@@ -739,6 +922,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     int nearestIndex = -1;
     Eigen::Vector2d projection; // 投影點
     double refHeading = 0.0;    // 局部路徑切線方向
+    double nearest_t = 0.0;     // projection ratio on the nearest segment
     Eigen::Vector2d p2(0, 0);
 
     size_t Y = global_path_x.size();
@@ -791,6 +975,29 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
         projection = proj;
         refHeading = std::atan2(v.y(), v.x());
         nearestIndex = (int)i;
+        nearest_t = t;
+      }
+    }
+
+    // Blend the segment heading with its neighbour by the projection ratio so
+    // the reference heading changes continuously across waypoints instead of
+    // stepping at each vertex (the step made epsi jump and the steering chatter).
+    // First half of a segment blends with the previous one, second half with
+    // the next; at a vertex both sides give the average of the two headings.
+    if (nearestIndex >= 0) {
+      auto segHeading = [&](int k) {
+        return std::atan2(global_path_y[k + 1] - global_path_y[k],
+                          global_path_x[k + 1] - global_path_x[k]);
+      };
+      if (nearest_t < 0.5 && nearestIndex - 1 >= (int)i_begin) {
+        double h_prev = segHeading(nearestIndex - 1);
+        refHeading = regularizeAngle(
+            h_prev + regularizeAngle(refHeading - h_prev) * (nearest_t + 0.5));
+      } else if (nearest_t >= 0.5 && nearestIndex + 1 < (int)i_end) {
+        double h_next = segHeading(nearestIndex + 1);
+        refHeading = regularizeAngle(
+            refHeading +
+            regularizeAngle(h_next - refHeading) * (nearest_t - 0.5));
       }
     }
 
@@ -925,26 +1132,56 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     int M_back = 0;  // 車子後方的路徑點數量
     int M_front = 8; // 車子前方的路徑點數量
 
-    double kappa_weighted_sum = 0.0;
-    double weight_sum = 0.0;
-    double kappa_sum = 0.0;
-
     int steer_lookahead = 0;
     int max_dist = std::max(M_back, M_front);
 
-    for (int j = -M_back; j <= M_front; ++j) {
-      int ii = std::clamp(nearestIndex + steer_lookahead + j, 0,
-                          (int)global_path_x.size() - 1);
+    // Weighted average of the curvature over a window around one path point:
+    // the closer a point is (smaller |j|), the higher its weight.
+    auto windowKappa = [&](int base) {
+      double kappa_weighted_sum = 0.0;
+      double weight_sum = 0.0;
+      for (int j = -M_back; j <= M_front; ++j) {
+        int ii = std::clamp(base + steer_lookahead + j, 0,
+                            (int)global_path_x.size() - 1);
+        double weight = double(max_dist + 1 - std::abs(j));
+        kappa_weighted_sum += weight * computeKappaAt(ii);
+        weight_sum += weight;
+      }
+      return kappa_weighted_sum / weight_sum;
+    };
 
-      // 離目前點越近（std::abs(j) 越小）的點給予越高權重，越遠的給予越低權重
-      double weight = double(max_dist + 1 - std::abs(j));
-
-      kappa_weighted_sum += weight * computeKappaAt(ii);
-      kappa_sum += computeKappaAt(ii);
-      weight_sum += weight;
+    // The window would jump by a whole point every time nearestIndex advances,
+    // which made delta_d step and the steering chatter. Interpolate between the
+    // window at this point and at the next one by the projection ratio, so the
+    // feedforward curvature varies continuously along the path.
+    double ff_base = nearestIndex + nearest_t;
+    if (ff_lookahead_time > 0.0 && global_path_s_.size() > 1) {
+      const double spacing =
+          global_path_s_.back() / double(global_path_s_.size() - 1);
+      const double lookahead_m =
+          std::max(ff_lookahead_min, std::fabs(vt) * ff_lookahead_time);
+      const double window_centroid = 120.0 / 45.0; // points, see windowKappa
+      ff_base += lookahead_m / spacing - window_centroid;
     }
+    ff_base = std::clamp(ff_base, 0.0, double(global_path_x.size() - 1));
+    const int ff_i0 = (int)ff_base;
+    const double ff_f = ff_base - ff_i0;
+    kappa_avg_steering =
+        (1.0 - ff_f) * windowKappa(ff_i0) +
+        ff_f * windowKappa(std::min(ff_i0 + 1,
+                                    (int)global_path_x.size() - 1));
 
-    kappa_avg_steering = kappa_weighted_sum / weight_sum;
+    // Clean curvature (heading change over +-kappa_baseline points) instead of
+    // the per-point curvature, whose point-to-point noise made delta_d jump.
+    if (clean_ff_enabled && !reversed_mode &&
+        clean_kappa_.size() == global_path_x.size()) {
+      const int n = (int)clean_kappa_.size();
+      double pos = std::clamp(nearestIndex + nearest_t + clean_ff_lookahead,
+                              0.0, double(n - 1));
+      int i0 = std::min((int)pos, n - 1), i1 = std::min(i0 + 1, n - 1);
+      double f = pos - i0;
+      kappa_avg_steering = (1.0 - f) * clean_kappa_[i0] + f * clean_kappa_[i1];
+    }
     // kappa_avg_steering = kappa_sum / double(M_back + M_front);
     
     // ==========================================
@@ -1067,15 +1304,25 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     // ROS_INFO("V:%.2f, K_Thresh:%.3f, K_Speed:%.3f", current_v, k_min_dynamic,
     // kappa_for_speed);
     
+    // Precomputed speed profile replaces the curvature-threshold limit above.
+    const bool use_profile = speed_profile_enabled && !reversed_mode &&
+                             speed_profile_.size() == global_path_x.size() &&
+                             nearestIndex >= 0;
+    if (use_profile) {
+      int i1 = std::min(nearestIndex + 1, (int)speed_profile_.size() - 1);
+      v_allowed = (1.0 - nearest_t) * speed_profile_[nearestIndex] +
+                  nearest_t * speed_profile_[i1];
+    }
+
     double effective_v_min_ref = v_min_ref;
     // if (kappa_for_speed > kappa_low_speed_thresh_) {
     //   v_allowed = std::min(v_allowed, kappa_low_speed_);
     //   effective_v_min_ref = std::min(effective_v_min_ref, kappa_low_speed_);
     // }
 
-    if (cte_current > cte_threshold) {
+    if (std::abs(cte_current) > cte_threshold) {
       double fcte =
-          std::min((cte_current - cte_threshold) / cte_threshold, 1.0);
+          std::min((std::abs(cte_current) - cte_threshold) / cte_threshold, 1.0);
       v_allowed = std::max(v_min_ref, v_allowed * (1.0 - cte_scale * fcte));
     }
 
@@ -1108,7 +1355,10 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     const bool slow_zone_phase = v_allowed < v_allowed_before_slow_zone - 1e-6;
 
     // 7. EMA 平滑 + Δv 限幅 (方案A)
-    double raw_v = alpha * v_allowed + (1.0 - alpha) * prev_v_ref;
+    // The profile already contains the braking distance, so EMA lag would
+    // only make the vehicle enter curves late.
+    double raw_v = use_profile ? v_allowed
+                               : alpha * v_allowed + (1.0 - alpha) * prev_v_ref;
     // 動態下限: CRUISE/RESUME 階段且非終點才用 v_min_ref，下限可降至 0
     bool lower_phase =
         ((vel_state == CRUISE || vel_state == RESUME) && !endpoint_phase);
@@ -1122,6 +1372,11 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     // 20260302: 進一步區分加速與減速的限制，讓加速更平順但減速更果斷
     double max_accel = 0.02; // 限制加速（回正時）
     double max_decel = 0.04; // 允許較快的減速（入彎或遇到障礙時）
+    if (use_profile) {
+      max_accel = sp_a_acc * d_t_;
+      // Profile braking plus margin for CTE / end-of-route slowdowns.
+      max_decel = std::max(sp_a_dec * d_t_, 0.04);
+    }
     double dv = std::clamp(raw_v - prev_v_ref, -max_decel, max_accel);
 
     v_ref = prev_v_ref + dv;
@@ -1243,8 +1498,10 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     }
 
     if (in_deadband) {
-      u_delta = locked_u_delta; // 強制歸零
+      u_delta = locked_u_delta; // hold the steering angle from deadband entry
     }
+    // Track the last output so the deadband locks the current angle, not 0
+    prev_u_delta = u_delta;
 
     // 加入 EMA 濾波器讓 u_delta 平滑---isekai
     // static double alpha_steer = 0.85; // 轉向平滑係數，可依需求微調 0.85

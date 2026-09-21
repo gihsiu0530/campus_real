@@ -669,7 +669,9 @@ void MPCPlanner_path::setPlan(const std_msgs::Float64MultiArrayConstPtr &msg) {
 
   updateSlowZonePathIndices();
 
-  if (speed_profile_enabled || clean_ff_enabled) {
+  // Static CSV route only: the planner's 7-point rolling path is too short for
+  // the +-kappa_baseline curvature and is replaced every 0.5 s.
+  if ((speed_profile_enabled || clean_ff_enabled) && !planner_mode_) {
     speed_profile_ = buildSpeedProfile(global_path_x, global_path_y,
                                        min_v_forward_, max_v_forward_,
                                        max_delta_inc_, d_t_, 1.66);

@@ -40,6 +40,7 @@
         <!-- new speed planner parameters (for the clean curvature speed profile) -->
         <param name="speed_profile_steer_rate_frac" value="0.5" />
         <param name="speed_profile_a_lat" value="0.4" />
+        <!-- 0.4 for max_v_forward 3.0 ,0.6 for max_v_forward 2.5 -->
         <param name="speed_profile_a_acc" value="0.15" />
         <param name="speed_profile_a_dec" value="0.15" />
         <!-- Strictest limit within +-N path points (0.7 m each), so the speed

@@ -2,6 +2,14 @@
     <!-- Localization source: "lidar" (/odom) or "vio" (/vio_odom).
          roslaunch mpcbitch run_mpc.launch localization_source:=vio -->
     <arg name="localization_source" default="lidar" />
+    <!-- <arg name="localization_source" default="vio" /> -->
+    <!-- Reference path: "planner" (realtime_planner_node, 7-point rolling path)
+         or "global" (CSV route on array_topic; start global_path separately).
+         Speed profile and waypoint smoothing only act on the global route.
+         roslaunch mpcbitch run_mpc.launch path_source:=global
+         "vio" localization requires path_source:=planner. -->
+    <!-- <arg name="path_source" default="planner" /> -->
+    <arg name="path_source" default="global" />
 
     <!-- <node pkg="mpc_4state" type="global_path" name="global_path" output="screen" /> -->
     <param name="CTE_ENTER" value="0.02" />    //0.02
@@ -15,22 +23,6 @@
     <param name="KAPPA_LOW_SPEED_THRESH" value="0.18" />
     <param name="KAPPA_LOW_SPEED" value="5.0" />
 
-    <!-- Speed planning lookahead/lookback parameters. Units are path POINTS,
-         not metres: on the 0.7 m-spaced CSV route (path/smooth_only_yuru.py
-         resamples at target_spacing = 0.7) 10 points is 7 m.
-
-         WARNING: MIN_LOOKAHEAD / MAX_LOOKAHEAD / LOOKAHEAD_GAIN are read into
-         members but mpc_back_test.cpp then computes look_ahead_dist from
-         hardcoded locals (10.0 / 30.0 / 10.0), so changing them here has NO
-         effect. Left unwired on purpose: connecting them would alter the
-         "global" source's speed planning, which is the validated baseline.
-         Only LOOK_BACK_DIST is actually used. -->
-         
-    <param name="MIN_LOOKAHEAD" value="5.0" />
-    <param name="MAX_LOOKAHEAD" value="30.0" />
-    <param name="LOOKAHEAD_GAIN" value="13.0" />
-    <param name="LOOK_BACK_DIST" value="4" />
-
     <!-- Reference path source for mpc_back_test:
          "global"  -> follow global_path.cpp CSV route on array_topic (default).
          "planner" -> follow realtime_planner_node.py on /senpai/array_topic.
@@ -39,10 +31,23 @@
          can keep running (now publishes to a different topic, so no collision). -->
 
     <node pkg="mpcbitch" type="mpc_back_test" name="mpc_back_test" output="screen">
+        <!-- Curvature-threshold speed planner lookahead/lookback (used when
+             the speed profile is off or in planner mode). Units are path
+             POINTS, not metres: on the 0.7 m-spaced CSV route 10 points is 7 m.
+             Inside <node>: the code reads them from the ~ namespace.
+
+             WARNING: MIN_LOOKAHEAD / MAX_LOOKAHEAD / LOOKAHEAD_GAIN are read
+             into members but mpc_back_test.cpp then computes look_ahead_dist
+             from hardcoded locals (10.0 / 30.0 / 10.0), so changing them here
+             has NO effect. Only LOOK_BACK_DIST is actually used. -->
+        <param name="MIN_LOOKAHEAD" value="5.0" />
+        <param name="MAX_LOOKAHEAD" value="30.0" />
+        <param name="LOOKAHEAD_GAIN" value="13.0" />
+        <param name="LOOK_BACK_DIST" value="5" />
+
         <!-- Must live inside <node>: the code reads it from the private
              namespace (~path_source), not the global one. -->
-        <!-- <param name="path_source" value="global" /> -->
-        <param name="path_source" value="planner" />
+        <param name="path_source" value="$(arg path_source)" />
 
         <!-- planner source only: seconds without a new path before the MPC
              commands a stop (v_ref = 0, steering held). The planner
@@ -52,9 +57,30 @@
 
         <!-- Forward speed limits (m/s). Inside <node>: read from ~ namespace. -->
         <param name="min_v_forward" value="1.0" />
-        <param name="max_v_forward" value="1.2" />
+        <param name="max_v_forward" value="3.0" />
         <!-- Max steering change per control step (rad) -->
         <param name="max_delta_inc" value="0.0084" /> 0.0084
+
+        <!-- Settings validated in simulation (run_mpc_sim.launch).
+             Steering deadband off: CTE_ENTER 0 never holds. (The CTE_ENTER at
+             the top of this file is a global param the node does not read.) -->
+        <param name="CTE_ENTER" value="0.0" />
+        <!-- MPC weight on steering change (code default 30) -->
+        <param name="R_steer" value="100" />
+        <!-- Precomputed speed profile (global route only; planner mode keeps
+             the curvature-threshold planner) -->
+        <param name="speed_profile" value="true" />
+        <param name="speed_profile_steer_rate_frac" value="0.5" />
+        <param name="speed_profile_a_lat" value="0.4" />
+        <!-- 0.4 for max_v_forward 3.0 ,0.6 for max_v_forward 2.5 -->
+        <param name="speed_profile_a_acc" value="0.15" />
+        <param name="speed_profile_a_dec" value="0.15" />
+        <param name="speed_profile_window" value="5" />
+        <!-- Savitzky-Golay waypoint smoothing (global route only) -->
+        <param name="path_smooth_window" value="5" />
+        <!-- Feedforward variants tested in sim and left off -->
+        <param name="ff_lookahead_time" value="0" />
+        <param name="clean_feedforward" value="false" />
 
         <!-- Pose source for the MPC. "vio" requires path_source=planner (the
              CSV route is in the LiDAR map frame; otherwise the node logs an
