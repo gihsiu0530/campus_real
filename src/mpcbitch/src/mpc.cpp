@@ -47,6 +47,10 @@ static double sp_steer_rate_frac = 0.5; // share of max_delta_inc for feedforwar
 static double sp_a_acc = 0.15;          // m/s^2, below the MPC's 0.2 bound
 static double sp_a_dec = 0.15;          // m/s^2
 static std::vector<double> speed_profile_;
+// Rolling speed profile on the planner's short path (~planner_speed_profile).
+static bool planner_profile_enabled = false;
+static int planner_kappa_baseline = 2;          // points on each side
+static double planner_profile_end_speed = -1.0; // m/s, < 0 = min_v_forward
 // Feedforward steering from the same clean curvature (~clean_feedforward).
 static bool clean_ff_enabled = false;
 // Where to sample it, in path points ahead of the projection. 2.67 is the
@@ -90,16 +94,22 @@ static double wrapAngle(double a) { return std::atan2(std::sin(a), std::cos(a));
 
 // Speed limit per path point: min(lateral-acceleration limit, steering-rate
 // limit), then a backward pass so braking starts early enough and a forward
-// pass for the acceleration limit.
+// pass for the acceleration limit. kappa_baseline is the number of points on
+// each side used for the curvature. v_end >= 0 caps the speed at the last
+// point, so the car can always slow to v_end by the end of what it can see.
+// shrink_ends: near the ends use as many points as exist instead of copying
+// the nearest full-window value. Needed for short paths, where copying would
+// overwrite most of the path and hide curve entries and exits.
 static std::vector<double>
 buildSpeedProfile(const std::vector<double> &xs, const std::vector<double> &ys,
                   double v_min, double v_max, double max_delta_inc, double dt,
-                  double L) {
+                  double L, int kappa_baseline, double v_end = -1.0,
+                  bool shrink_ends = false) {
   const int N = (int)xs.size();
   std::vector<double> v(N, v_max);
   if (N < 3)
     return v;
-  const int k = std::max(1, sp_kappa_baseline);
+  const int k = std::max(1, kappa_baseline);
 
   // Curvature from the heading change over +-k points (noise averages out).
   std::vector<double> kappa(N, 0.0), s(N, 0.0);
@@ -107,6 +117,11 @@ buildSpeedProfile(const std::vector<double> &xs, const std::vector<double> &ys,
     s[i] = s[i - 1] + std::hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]);
   for (int i = 0; i < N; ++i) {
     int a = std::max(0, i - k), b = std::min(N - 1, i + k);
+    if (shrink_ends) {
+      int r = std::min({k, i, N - 1 - i});
+      a = i - r;
+      b = i + r;
+    }
     if (a == i || b == i)
       continue;
     double h1 = std::atan2(ys[i] - ys[a], xs[i] - xs[a]);
@@ -115,11 +130,17 @@ buildSpeedProfile(const std::vector<double> &xs, const std::vector<double> &ys,
     if (arc > 1e-6)
       kappa[i] = wrapAngle(h2 - h1) / (0.5 * arc);
   }
-  // Ends have no full window: copy the nearest valid value.
-  for (int i = 0; i <= k && k + 1 < N; ++i)
-    kappa[i] = kappa[std::min(k + 1, N - 1)];
-  for (int i = std::max(0, N - k - 1); i < N; ++i)
-    kappa[i] = kappa[std::max(0, N - k - 2)];
+  if (shrink_ends) {
+    // Only the two end points have no neighbour on one side.
+    kappa[0] = kappa[1];
+    kappa[N - 1] = kappa[N - 2];
+  } else {
+    // Ends have no full window: copy the nearest valid value.
+    for (int i = 0; i <= k && k + 1 < N; ++i)
+      kappa[i] = kappa[std::min(k + 1, N - 1)];
+    for (int i = std::max(0, N - k - 1); i < N; ++i)
+      kappa[i] = kappa[std::max(0, N - k - 2)];
+  }
   clean_kappa_ = kappa;
 
   // Feedforward steering angle and its change per metre.
@@ -145,6 +166,8 @@ buildSpeedProfile(const std::vector<double> &xs, const std::vector<double> &ys,
       v[i] = *std::min_element(raw.begin() + a, raw.begin() + b + 1);
     }
   }
+  if (v_end >= 0.0)
+    v[N - 1] = std::min(v[N - 1], v_end);
   for (int i = N - 2; i >= 0; --i) {
     double ds = s[i + 1] - s[i];
     v[i] = std::min(v[i], std::sqrt(v[i + 1] * v[i + 1] + 2.0 * sp_a_dec * ds));
@@ -437,6 +460,17 @@ void MPCPlanner_path::initialize() {
   private_nh_.param("speed_profile", speed_profile_enabled, false);
   private_nh_.param("speed_profile_kappa_baseline", sp_kappa_baseline, 5);
   private_nh_.param("speed_profile_window", sp_window, 5);
+  private_nh_.param("planner_speed_profile", planner_profile_enabled, false);
+  private_nh_.param("planner_speed_profile_kappa_baseline",
+                    planner_kappa_baseline, 2);
+  private_nh_.param("planner_speed_profile_end_speed", planner_profile_end_speed,
+                    -1.0);
+  ROS_INFO("Planner rolling speed profile: %s (kappa baseline %d, end speed "
+           "%.2f m/s; planner path source only)",
+           speed_profile_enabled && planner_profile_enabled ? "on" : "off",
+           planner_kappa_baseline,
+           planner_profile_end_speed >= 0.0 ? planner_profile_end_speed
+                                            : min_v_forward_);
   private_nh_.param("path_smooth_window", path_smooth_window, 0);
   ROS_INFO("Path smoothing (Savitzky-Golay): %s (+-%d points)",
            path_smooth_window > 0 ? "on" : "off", path_smooth_window);
@@ -669,12 +703,29 @@ void MPCPlanner_path::setPlan(const std_msgs::Float64MultiArrayConstPtr &msg) {
 
   updateSlowZonePathIndices();
 
-  // Static CSV route only: the planner's 7-point rolling path is too short for
-  // the +-kappa_baseline curvature and is replaced every 0.5 s.
   if ((speed_profile_enabled || clean_ff_enabled) && !planner_mode_) {
+    // Static CSV route: the whole route is known, so plan it once.
     speed_profile_ = buildSpeedProfile(global_path_x, global_path_y,
                                        min_v_forward_, max_v_forward_,
-                                       max_delta_inc_, d_t_, 1.66);
+                                       max_delta_inc_, d_t_, 1.66,
+                                       sp_kappa_baseline);
+  } else if (speed_profile_enabled && planner_mode_ && planner_profile_enabled) {
+    // Planner path: only a few metres ahead are known and the path is replaced
+    // every 0.5 s. Re-plan on each one and assume a sharp curve may start right
+    // after its last point (end speed = planner_profile_end_speed), so the
+    // speed is always low enough to brake within what the planner can see.
+    // The planner already B-spline smooths its path, so a short curvature
+    // baseline is enough.
+    const double v_end = planner_profile_end_speed >= 0.0
+                             ? planner_profile_end_speed
+                             : min_v_forward_;
+    speed_profile_ = buildSpeedProfile(global_path_x, global_path_y,
+                                       min_v_forward_, max_v_forward_,
+                                       max_delta_inc_, d_t_, 1.66,
+                                       planner_kappa_baseline, v_end,
+                                       /*shrink_ends=*/true);
+  } else {
+    speed_profile_.clear();
   }
 
   if (planner_mode_) {

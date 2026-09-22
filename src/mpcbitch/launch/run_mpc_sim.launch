@@ -1,7 +1,16 @@
 <launch>
-    <arg name="rviz" default="true" />
+    <arg name="rviz" default="false" />
     <!-- Each run writes mpcdata/simulation/sim_YYYYmmdd_HHMMSS.csv -->
     <arg name="sim_dir" default="$(find mpcbitch)/../../mpcdata/simulation" />
+    <!-- Reference path for the MPC: "global" (CSV route) or "planner"
+         (fake_planner.py cuts a short rolling path from the CSV route like
+         realtime_planner_node_ff_VIO.py, on /senpai/array_topic).
+         roslaunch mpcbitch run_mpc_sim.launch path_source:=planner -->
+    <arg name="path_source" default="global" />
+    <!-- fake planner: fixed_speed (path = fixed_speed_mps * 3 s) or
+         real_odom (path = measured speed * 3 s) -->
+    <arg name="planner_ego_mode" default="fixed_speed" />
+    <arg name="planner_fixed_speed" default="1.0" />
 
     <node pkg="mpc_4state" type="global_path" name="global_path" output="screen" />
 
@@ -17,7 +26,18 @@
         <param name="auto_stop_duration" value="3.0" />
     </node>
 
+    <node if="$(eval arg('path_source') == 'planner')" pkg="mpcbitch"
+          type="fake_planner.py" name="fake_planner" output="screen">
+        <param name="ego_input_mode" value="$(arg planner_ego_mode)" />
+        <param name="fixed_speed_mps" value="$(arg planner_fixed_speed)" />
+    </node>
+
     <node pkg="mpcbitch" type="mpc" name="mpc" output="screen">
+        <param name="path_source" value="$(arg path_source)" />
+        <!-- planner source: re-plan the speed profile on every short path,
+             ending at min_v_forward, so the car can always brake in time -->
+        <param name="planner_speed_profile" value="true" />
+        <param name="planner_speed_profile_kappa_baseline" value="2" />
         <!-- Forward speed limits (m/s) -->
         <param name="min_v_forward" value="1.0" />
         <param name="max_v_forward" value="3.0" />
