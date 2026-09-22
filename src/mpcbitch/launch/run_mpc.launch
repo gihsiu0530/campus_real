@@ -76,6 +76,13 @@
         <param name="speed_profile_a_acc" value="0.15" />
         <param name="speed_profile_a_dec" value="0.15" />
         <param name="speed_profile_window" value="5" />
+        <!-- Planner path source: re-plan the speed profile on every short
+             planner path, ending at min_v_forward, so the car can always brake
+             within what the planner can see (~1.5 m/s on a 4.2 m path with
+             a_dec 0.15). Curvature over +-2 points: the planner already
+             smooths its path. -->
+        <param name="planner_speed_profile" value="true" />
+        <param name="planner_speed_profile_kappa_baseline" value="2" />
         <!-- Savitzky-Golay waypoint smoothing (global route only) -->
         <param name="path_smooth_window" value="5" />
         <!-- Feedforward variants tested in sim and left off -->
