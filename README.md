@@ -8,8 +8,9 @@
 - [3. 啟動步驟](#3-啟動步驟)
 - [4. 各元件怎麼運作](#4-各元件怎麼運作)
 - [5. 怎麼串接控制程式](#5-怎麼串接控制程式)
-- [6. 監看與除錯](#6-監看與除錯)
-- [7. 已知限制](#7-已知限制)
+- [6. 純軟體模擬](#6-純軟體模擬)
+- [7. 監看與除錯](#7-監看與除錯)
+- [8. 已知限制](#8-已知限制)
 
 ---
 
@@ -199,7 +200,180 @@ Arduino（`~/Arduino/weirdo/weirdo.ino`）同時訂閱 `/v_real` 當速度回授
 
 ---
 
-## 6. 監看與除錯
+## 6. 純軟體模擬
+
+`run_mpc_sim.launch` 不需要任何感測器或車輛硬體。`mpc_simulate` 當車輛模型
+（自行車模型，軸距 1.66 m、步長 0.1 s）：吃 MPC 的控制輸出、積分出位姿再餵回 MPC，
+形成閉環。用來在上實車前驗證控制程式的改動。
+
+> **模擬跑的是 `mpc`（`src/mpcbitch/src/mpc.cpp`），不是實車的
+> `mpc_back_test`（`src/mpcbitch/src/mpc_back_test.cpp`）。**
+> 兩支是平行維護的分支，演算法相同，改完一邊要手動同步到另一邊
+> （git log 裡的 `Port the sim MPC improvements to the real-vehicle node`）。
+
+### 6.1 跑起來
+
+```bash
+cd ~/campus_ws && catkin_make && source devel/setup.bash
+
+roslaunch mpcbitch run_mpc_sim.launch                       # CSV 路線，跑完自動結束
+roslaunch mpcbitch run_mpc_sim.launch rviz:=true            # 同時開 rviz
+roslaunch mpcbitch run_mpc_sim.launch path_source:=planner  # 改用 fake_planner 的滾動短路徑
+roslaunch mpcbitch run_mpc_sim.launch loop_route:=true      # 當閉環一直繞圈（Ctrl-C 結束）
+roslaunch mpcbitch run_mpc_sim.launch path_file:=/abs/route.csv   # 換路線
+```
+
+rviz 由 `rviz_display.launch` 帶起（`rviz:=true` 時才 include），載入
+`src/mpcbitch/rviz/display.rviz`；也可以單獨開：
+`roslaunch mpcbitch rviz_display.launch`，或用 `rviz_config:=` 指定別的設定檔。
+
+### 6.2 節點組成
+
+| 節點 | 程式 | 作用 |
+|---|---|---|
+| `global_path` | `src/mpc_4state/src/global_path.cpp` | 每秒把整條 CSV 路線發到 `array_topic` |
+| `mpc_simulate` | `src/mpc_4state/src/mpc_simulate.cpp` | 車輛模型。訂 `/mpc_result_test`，發 `/mpc_new_pose`、`/v_real`、`/steering_sensor`、車輛 marker。**`required="true"`**：它一結束，roslaunch 就把所有節點關掉 |
+| `mpc` | `src/mpcbitch/src/mpc.cpp` | 待驗證的 MPC（10 Hz，OSQP） |
+| `fake_planner` | `src/mpcbitch/scripts/fake_planner.py` | 只在 `path_source:=planner` 時啟動。從 CSV 路線切出約 3 s 的滾動短路徑發 `/senpai/array_topic`，模仿 `realtime_planner_node_ff_VIO.py` 的輸出格式 |
+| `cte_plotter_node` | `src/mpcbitch/scripts/plot_cte.py` | 關閉時讀 `sim_dir` 裡最新的 csv，畫出 `<同名>_cte.png` |
+| `rviz` | `launch/rviz_display.launch` | 只在 `rviz:=true` 時啟動 |
+
+### 6.3 輸出
+
+| 檔案 | 內容 |
+|---|---|
+| `mpcdata/simulation/sim_YYYYmmdd_HHMMSS.csv` | 逐控制週期紀錄：`u_a, v_real, v_ref, u_delta, delta_d, px, py, theta1, cte, cte_real, epsi, vx, vy, kappa, beta` |
+| `mpcdata/simulation/sim_YYYYmmdd_HHMMSS_cte.png` | 關閉時由 `plot_cte.py` 自動產生 |
+
+每次執行都會新開一個檔名帶時間戳的 csv，不會覆寫上一次。
+
+### 6.4 怎麼結束
+
+| 情況 | 結束方式 |
+|---|---|
+| 一般（`loop_route:=false`） | 車走到路線末端，`endpoint_phase` 把 `v_ref` 降到 0；`mpc_simulate` 偵測到靜止超過 `auto_stop_duration` 就自己結束，`required="true"` 讓 roslaunch 連帶全關，`plot_cte.py` 也就把圖寫出來 |
+| 繞圈（`loop_route:=true`） | 車永遠不停，`auto_stop` 不會觸發 → **按 Ctrl-C**。一樣會觸發 roslaunch 關閉流程，圖照樣產生 |
+
+### 6.5 launch arg（命令行可覆寫）
+
+| arg | 預設 | 意義 |
+|---|---|---|
+| `rviz` | `false` | `true` 時 include `rviz_display.launch` |
+| `sim_dir` | `mpcdata/simulation` | 紀錄 csv 與 cte 圖的輸出目錄 |
+| `path_source` | `global` | `global` = 跟 `global_path` 發的整條 CSV 路線；`planner` = 跟 `fake_planner.py` 的滾動短路徑（同時會啟動該節點） |
+| `loop_route` | `false` | `true` = 把 CSV 路線當閉環，走到最後一點接回第一點繼續繞，不停車也不關節點。需要 `path_source:=global` |
+| `path_file` | `path/smoothed/back_garden_07new.csv` | `global_path` 要讀的路線 CSV（給絕對路徑） |
+| `planner_ego_mode` | `fixed_speed` | `fake_planner` 餵給自己的 ego 速度來源：`fixed_speed` 用固定值、`real_odom` 用模擬器實際車速 |
+| `planner_fixed_speed` | `1.0` | 前者的固定速度（m/s）。短路徑長度約等於 速度 × 3 s |
+
+### 6.6 `mpc_simulate` 的參數（車輛模型）
+
+| param | launch 值 | 程式預設 | 意義 |
+|---|---|---|---|
+| `emulate_real_sensors` | `true` | `false` | 額外發佈 `/v_real` 與 `/steering_sensor`，並把位姿放在光達安裝點，讓 MPC 收到的訊號與實車一致 |
+| `auto_stop` | `true` | `false` | 車靜止夠久就結束這次 run |
+| `auto_stop_speed` | `0.09` | `0.02` | 視為「靜止」的速度門檻（m/s） |
+| `auto_stop_duration` | `3.0` | `5.0` | 需持續靜止幾秒才結束 |
+
+launch 沒設的 `lidar_offset`（程式預設 0.5 m）是光達安裝點在後軸前方的距離：模擬器把位姿報在該點，
+MPC 端再用內部的 `offset = -0.5` 推回車輛參考點，和實車的訊號鏈一致。
+`emulate_real_sensors` 為 `false` 時這個偏移會被歸零。
+
+### 6.7 `mpc` 的參數
+
+**路徑與定位**
+
+| param | launch 值 | 程式預設 | 意義 |
+|---|---|---|---|
+| `path_source` | `$(arg path_source)` | `global` | 參考路徑來源 |
+| `loop_route` | `$(arg loop_route)` | `false` | 閉環繞圈。啟動時會檢查路線首尾行進方向是否連續，並自動修剪末端「越過起點又折回」的點 |
+| `lidar_odom_topic` | `/mpc_new_pose` | `/odom` | 位姿來源。模擬器發在 `/mpc_new_pose`，所以必須改 |
+| `save_dir` | `$(arg sim_dir)` | 未設 | 設了就把紀錄寫成 `<save_dir>/sim_<時間戳>.csv`，否則用 `save_filename` |
+| `use_state_projection` | `false` | `true` | 是否把位姿往前推算以補償感測延遲。模擬沒有延遲，所以關掉 |
+
+**速度上下限**
+
+| param | launch 值 | 程式預設 | 意義 |
+|---|---|---|---|
+| `min_v_forward` | `1.0` | `1.0` | 前進最小速度（m/s） |
+| `max_v_forward` | `3.0` | `1.2` | 前進最大速度（m/s）。實車 `run_mpc.launch` 設 1.5 |
+| `max_delta_inc` | `0.0084` | `0.02` | 每個控制週期最大前輪角變化（rad）。越小轉向越緩 |
+
+**速度剖面（speed profile）** — 只對 `global` 路線生效，planner 路線走下面的 `planner_*`
+
+| param | launch 值 | 程式預設 | 意義 |
+|---|---|---|---|
+| `speed_profile` | `true` | `false` | 用預先算好的速度剖面（側向加速度上限 + 轉向速率上限，再做前後向傳遞），取代原本的曲率門檻式降速 |
+| `speed_profile_a_lat` | `0.4` | `0.6` | 最大側向加速度（m/s²）。launch 註解：`max_v_forward` 3.0 配 0.4、2.5 配 0.6 |
+| `speed_profile_a_acc` | `0.15` | `0.15` | 最大縱向加速度（m/s²） |
+| `speed_profile_a_dec` | `0.15` | `0.15` | 最大減速度（m/s²），決定入彎前多早開始煞。實車設 0.2 |
+| `speed_profile_steer_rate_frac` | `0.5` | `0.5` | 前饋轉向允許用掉 `max_delta_inc` 的比例 |
+| `speed_profile_window` | `5` | `5` | 取前後 N 點內最嚴格的限速，避免彎頂速度回升、出彎前又掉下來 |
+| `speed_profile_kappa_baseline` | 未設 | `5` | 算曲率時前後各取幾點，越大越平滑 |
+| `planner_speed_profile` | `true` | `false` | planner 路線：每收到一條短路徑就重新規劃，末速收在 `min_v_forward`，確保能在看得到的範圍內煞停 |
+| `planner_speed_profile_kappa_baseline` | `2` | `2` | 同上。planner 路徑本身已平滑過，基線可以小 |
+| `planner_speed_profile_end_speed` | 未設 | `-1`（= `min_v_forward`） | planner 速度剖面的末速 |
+
+**路徑平滑**
+
+| param | launch 值 | 程式預設 | 意義 |
+|---|---|---|---|
+| `path_smooth_window` | `5` | `0`（關閉） | Savitzky-Golay 平滑路線點（前後 N 點）。去掉 CSV 約 1 cm 的雜訊，點位移動 ≤ 約 4 cm。只對 global 路線生效 |
+
+**前饋轉向**
+
+| param | launch 值 | 程式預設 | 意義 |
+|---|---|---|---|
+| `ff_lookahead_time` | `0` | `0.0` | 前視距離 = max(`ff_lookahead_min`, 車速 × 此值)。0 = 用固定前視 |
+| `ff_lookahead_min` | `1.87` | `1.87` | 前視距離下限（m） |
+| `clean_feedforward` | `false` | `false` | 改用速度剖面算出的乾淨曲率做前饋轉向，取代逐點曲率（逐點曲率的雜訊會讓 `delta_d` 跳動） |
+| `clean_feedforward_lookahead` | `2.67` | `2.67` | 前者的前視距離（m） |
+
+**轉向平順度**
+
+| param | launch 值 | 程式預設 | 意義 |
+|---|---|---|---|
+| `R_steer` | `100` | `30` | MPC 對方向盤變化量的權重。越大越平穩但反應越慢 |
+| `CTE_ENTER` | `0.0` | `0.015` | 轉向死區的進入門檻（m）。設 0 時進入條件永不成立，等於關閉死區 |
+
+### 6.8 `fake_planner.py` 的參數
+
+只在 `path_source:=planner` 時啟動。launch 只設了前兩個，其餘用程式預設。
+
+| param | launch 值 | 程式預設 | 意義 |
+|---|---|---|---|
+| `ego_input_mode` | `$(arg planner_ego_mode)` | `fixed_speed` | 決定路徑長度的 ego 速度來源：`fixed_speed` 用固定值、`real_odom` 用模擬器實際車速 |
+| `fixed_speed_mps` | `$(arg planner_fixed_speed)` | `1.0` | 前者的固定速度（m/s） |
+| `horizon_s` | 未設 | `3.0` | 路徑涵蓋幾秒（長度 ≈ 速度 × 此值） |
+| `path_point_spacing_m` | 未設 | `0.7` | 重取樣點距（m），與 CSV 路線一致 |
+| `path_min_points` | 未設 | `7` | 最少點數 |
+| `path_back_extension_m` | 未設 | 等於點距 | 在起點後方沿起始方向補一個共線點，避免 MPC 的追蹤點（位姿後 0.5 m）落在路徑起點之前（見 4.3 第 4 步） |
+| `route_smooth_window` | 未設 | `5` | 切路徑前先平滑 CSV 路線（前後 N 點） |
+| `period_s` | 未設 | `0.5` | 重發路徑的週期（s），對應推論程式的約 0.5 s |
+| `route_topic` / `out_topic` | 未設 | `array_topic` / `/senpai/array_topic` | 輸入的 CSV 路線、輸出的短路徑 |
+| `frame_id` | 未設 | `map` | 發佈路徑的 frame |
+
+### 6.9 `plot_cte.py` 的參數
+
+| param | launch 值 | 程式預設 | 意義 |
+|---|---|---|---|
+| `csv_dir` | `$(arg sim_dir)` | `''` | 關閉時從這個目錄找最新的 csv 畫圖；留空則改用 `csv_file` / `img_file` |
+
+### 6.10 模擬與實車的差異
+
+| 項目 | 模擬 | 實車 |
+|---|---|---|
+| 執行檔 | `mpc`（`src/mpc.cpp`） | `mpc_back_test`（`src/mpc_back_test.cpp`） |
+| launch | `run_mpc_sim.launch` | `run_mpc.launch` |
+| 位姿來源 | `/mpc_new_pose`（模型積分出來的） | `/odom`（光達）或 `/vio_odom`（VIO） |
+| 感測延遲 | 無，`use_state_projection=false` | 有，預設往前推算 0.5 s |
+| 車速 | 模型輸出（`emulate_real_sensors` 模擬成 `/v_real`） | `mpc_and_vreal_publisher` 對光達 `/odom` 微分 |
+| 速度上限 | 3.0 m/s | 1.5 m/s |
+| `max_delta_inc` | 0.0084 rad | 0.02 rad |
+
+---
+
+## 7. 監看與除錯
 
 - **rviz**（`vio_planner.rviz`，Fixed Frame `global`、視角跟著 `imu`）：
   綠線 = VIO 軌跡、紅箭頭 = `/vio_odom`、橘線 = 推論路徑；下方為 VIO 特徵追蹤影像與分割影像。
@@ -221,7 +395,7 @@ Arduino（`~/Arduino/weirdo/weirdo.ino`）同時訂閱 `/v_real` 當速度回授
 
 ---
 
-## 7. 已知限制
+## 8. 已知限制
 
 - **VIO 停止輸出時 MPC 不送任何指令（包含停車）**；VIO 重新初始化或發散時座標跳變不偵測，
   且位姿離路徑超過 5 m 時 MPC 仍會繼續輸出。VIO 模式下請隨時準備人工接管。
@@ -229,3 +403,18 @@ Arduino（`~/Arduino/weirdo/weirdo.ino`）同時訂閱 `/v_real` 當速度回授
 - OpenVINS 設定 `zupt_only_at_beginning: true`，長時間停車時可能漂移。
 - `run_mpc.launch` 的 `MIN_LOOKAHEAD` / `MAX_LOOKAHEAD` / `LOOKAHEAD_GAIN` 沒有接線（刻意保留）。
 - `realtime_planner_node_ff_VIO_VLM.py` 是獨立副本，沒有上述 VIO 錨點、補點、分割防呆等改動。
+- **沒有任何節點發佈 `/turn_index`**（`campus_ws`、`~/golf_ws`、`~/new_golf` 都查過）。
+  因此 `turn_index_` 一直停在初值 0，`turnIndexCallback` 裡寫死的 10000 從未生效。
+  後果在模擬與實車都一樣：
+  - 最近點搜尋窗口塌成空（`end = 0`），所以 log 裡的 `starting_waypoint_for mpc is: -1`
+    是常態，**不代表跟蹤失敗**；`/start_id` 實際發出的恆為 0。
+  - 終點判斷 `start_id >= 路徑點數-2` 永不成立 → 那段的 `finish`、`publishStopSignal(true)`、
+    `ros::shutdown()` 是**死碼**。車其實是靠終點前 `N_end_slow` 點的速度緩降才停下來的。
+  - Frenet 投影（cte / epsi）不受影響：它的邊界有 `i_end <= i_begin` 防呆，會改成掃全路徑，
+    所以模擬中 cte 仍維持在約 0.02 m。
+  - 倒退狀態機（`APPROACH` / `DWELL` / `RESUME`）同樣進不去。
+    若將來讓某個節點發 `/turn_index`，上述路徑會一次全部活過來，需要重新測試。
+- `loop_route:=true` 需要**真正的閉環路線**：終點要回到起點附近，而且行進方向連續。
+  啟動時程式會檢查，不符就 `ROS_ERROR` 並自動退回單趟模式。
+  `path/smoothed/back_garden_07new.csv` 是合格的閉環（首尾方向差 1.7°），
+  它末端有 3 個越過起點又折回的點，由程式自動修剪（會印 `trimmed 3 point(s)`）。

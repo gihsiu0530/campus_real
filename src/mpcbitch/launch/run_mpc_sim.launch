@@ -7,20 +7,41 @@
          realtime_planner_node_ff_VIO.py, on /senpai/array_topic).
          roslaunch mpcbitch run_mpc_sim.launch path_source:=planner -->
     <arg name="path_source" default="global" />
+    <!-- Drive the CSV route as a closed circuit: at the last waypoint the index
+         wraps back to the first one and the node keeps lapping instead of
+         stopping and shutting down. Requires path_source:=global and a route
+         that arrives back at its start on the same heading; the node checks
+         that and trims any stray points at the end that overshoot the start.
+         NOTE: the vehicle then never stands still, so mpc_simulate's auto_stop
+         never fires and the run does not end by itself - stop it with Ctrl-C,
+         which still shuts roslaunch down and makes plot_cte.py write its plot.
+         roslaunch mpcbitch run_mpc_sim.launch loop_route:=true -->
+    <arg name="loop_route" default="false" />
+    <!-- Route CSV for global_path; the default matches global_path.cpp's own.
+         back_garden_07new.csv is a genuine circuit: it comes back to its start
+         only 1.7 deg off its start heading. Its last 3 points overshoot the
+         start and double back, and loop_route trims them automatically. -->
+    <arg name="path_file"
+         default="$(find mpc_4state)/../../path/smoothed/back_garden_07new.csv" />
     <!-- fake planner: fixed_speed (path = fixed_speed_mps * 3 s) or
          real_odom (path = measured speed * 3 s) -->
     <arg name="planner_ego_mode" default="fixed_speed" />
     <arg name="planner_fixed_speed" default="1.0" />
 
-    <node pkg="mpc_4state" type="global_path" name="global_path" output="screen" />
+    <node pkg="mpc_4state" type="global_path" name="global_path" output="screen">
+        <param name="path_file" value="$(arg path_file)" />
+    </node>
 
     <!-- required: when the run ends, roslaunch shuts everything down, which
          makes plot_cte.py write its plot -->
+         
     <node pkg="mpc_4state" type="mpc_simulate" name="mpc_simulate" output="screen" required="true">
         <!-- Publish /v_real, /steering_sensor and the pose at the LiDAR mount,
              as the mpc (mpc_back_test algorithm) expects from the real vehicle -->
+
         <param name="emulate_real_sensors" value="true" />
         <!-- End the run once the vehicle has stood still for auto_stop_duration -->
+
         <param name="auto_stop" value="true" />
         <param name="auto_stop_speed" value="0.09" />
         <param name="auto_stop_duration" value="3.0" />
@@ -34,48 +55,64 @@
 
     <node pkg="mpcbitch" type="mpc" name="mpc" output="screen">
         <param name="path_source" value="$(arg path_source)" />
+
+        <!-- Closed-circuit route; see the arg above -->
+        <param name="loop_route" value="$(arg loop_route)" />
+
         <!-- planner source: re-plan the speed profile on every short path,
              ending at min_v_forward, so the car can always brake in time -->
         <param name="planner_speed_profile" value="true" />
         <param name="planner_speed_profile_kappa_baseline" value="2" />
+
         <!-- Forward speed limits (m/s) -->
         <param name="min_v_forward" value="1.0" />
         <param name="max_v_forward" value="3.0" />
+
         <!-- Max steering change per control step (rad) -->
         <param name="max_delta_inc" value="0.0084" /> 0.0084 0.02
         <param name="save_dir" value="$(arg sim_dir)" />
         <!-- Simulator publishes its pose on /mpc_new_pose instead of /odom -->
         <param name="lidar_odom_topic" value="/mpc_new_pose" />
+
         <!-- The simulator has no latency, so skip the state projection -->
         <param name="use_state_projection" value="false" />
         <!-- Steering deadband off: CTE_ENTER 0 means the enter condition never
              holds, so the steering is never locked (default 0.015) -->
+
         <param name="CTE_ENTER" value="0.0" />
         <!-- MPC weight on steering change (code default 30); larger = calmer
              steering but slower response -->
+
         <param name="R_steer" value="100" />
         <!-- Precomputed speed profile from clean curvature + physical limits
              (replaces the curvature-threshold speed planner) -->
+
         <param name="speed_profile" value="true" />
         <!-- new speed planner parameters (for the clean curvature speed profile) -->
+        
         <param name="speed_profile_steer_rate_frac" value="0.5" />
         <param name="speed_profile_a_lat" value="0.4" />
         <!-- 0.4 for max_v_forward 3.0 ,0.6 for max_v_forward 2.5 -->
+
         <param name="speed_profile_a_acc" value="0.15" />
         <param name="speed_profile_a_dec" value="0.15" />
         <!-- Strictest limit within +-N path points (0.7 m each), so the speed
              does not rise at a curve apex -->
+
         <param name="speed_profile_window" value="5" />
         <!-- Savitzky-Golay smoothing of the route waypoints (+-N points,
              0 = off); removes their ~1 cm noise, moves points <= ~4 cm -->
+
         <param name="path_smooth_window" value="5" />
         <!-- Feedforward lookahead = max(ff_lookahead_min, v * ff_lookahead_time).
              0.75 s gives the old fixed 1.87 m at 2.5 m/s and more above it;
              ff_lookahead_time 0 = old fixed lookahead -->
+
         <param name="ff_lookahead_time" value="0" />
         <param name="ff_lookahead_min" value="1.87" />
         <!-- Feedforward steering from the clean speed-profile curvature
              instead of the noisy per-point curvature -->
+
         <param name="clean_feedforward" value="false" />
         <param name="clean_feedforward_lookahead" value="2.67" />
     </node>

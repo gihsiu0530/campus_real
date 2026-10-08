@@ -1,15 +1,21 @@
 <launch>
     <!-- Localization source: "lidar" (/odom) or "vio" (/vio_odom).
          roslaunch mpcbitch run_mpc.launch localization_source:=vio -->
-    <arg name="localization_source" default="lidar" />
-    <!-- <arg name="localization_source" default="vio" /> -->
+    <!-- <arg name="localization_source" default="lidar" /> -->
+    <arg name="localization_source" default="vio" />
     <!-- Reference path: "planner" (realtime_planner_node, 7-point rolling path)
          or "global" (CSV route on array_topic; start global_path separately).
          Speed profile and waypoint smoothing only act on the global route.
          roslaunch mpcbitch run_mpc.launch path_source:=global
          "vio" localization requires path_source:=planner. -->
-    <!-- <arg name="path_source" default="planner" /> -->
-    <arg name="path_source" default="global" />
+    <arg name="path_source" default="planner" />
+    <!-- Drive the global CSV route as a closed circuit: at the last waypoint
+         the index wraps back to the first one and the node keeps going instead
+         of stopping and shutting down. Requires path_source:=global and a CSV
+         whose two ends meet (back_garden_07new.csv closes to within 0.16 m).
+         roslaunch mpcbitch run_mpc.launch path_source:=global loop_route:=true -->
+    <arg name="loop_route" default="false" />
+    <!-- <arg name="path_source" default="global" /> -->
 
     <!-- <node pkg="mpc_4state" type="global_path" name="global_path" output="screen" /> -->
     <param name="CTE_ENTER" value="0.02" />    //0.02
@@ -49,6 +55,10 @@
              namespace (~path_source), not the global one. -->
         <param name="path_source" value="$(arg path_source)" />
 
+        <!-- Closed-circuit route; see the arg above. Inside <node> for the
+             same reason as path_source. -->
+        <param name="loop_route" value="$(arg loop_route)" />
+
         <!-- planner source only: seconds without a new path before the MPC
              commands a stop (v_ref = 0, steering held). The planner
              republishes every 0.5 s, so this is 3 missed inference cycles.
@@ -57,7 +67,7 @@
 
         <!-- Forward speed limits (m/s). Inside <node>: read from ~ namespace. -->
         <param name="min_v_forward" value="1.0" />
-        <param name="max_v_forward" value="3.0" />
+        <param name="max_v_forward" value="2.5" />
         <!-- Max steering change per control step (rad) -->
         <param name="max_delta_inc" value="0.0084" /> 0.0084
 
@@ -71,11 +81,11 @@
              the curvature-threshold planner) -->
         <param name="speed_profile" value="true" />
         <param name="speed_profile_steer_rate_frac" value="0.5" />
-        <param name="speed_profile_a_lat" value="0.4" />
+        <param name="speed_profile_a_lat" value="0.6" />
         <!-- 0.4 for max_v_forward 3.0 ,0.6 for max_v_forward 2.5 -->
         <param name="speed_profile_a_acc" value="0.15" />
-        <param name="speed_profile_a_dec" value="0.15" />
-        <param name="speed_profile_window" value="5" />
+        <param name="speed_profile_a_dec" value="0.2" />
+        <param name="speed_profile_window" value="3" />
         <!-- Planner path source: re-plan the speed profile on every short
              planner path, ending at min_v_forward, so the car can always brake
              within what the planner can see (~1.5 m/s on a 4.2 m path with

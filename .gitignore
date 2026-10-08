@@ -12,3 +12,5 @@ path_inference/
 *.mp4
 .claude/
 .~lock.*#
+INS_ICD_rev-2.95_May_2025.pdf
+mpcdata/simulation/

@@ -100,11 +100,15 @@ static double wrapAngle(double a) { return std::atan2(std::sin(a), std::cos(a));
 // shrink_ends: near the ends use as many points as exist instead of copying
 // the nearest full-window value. Needed for short paths, where copying would
 // overwrite most of the path and hide curve entries and exits.
+// closed_loop: the route is a circuit, so the last point is followed by the
+// first one. Index arithmetic and arc lengths then wrap through that seam, both
+// passes run twice round the ring, and v_end / shrink_ends do not apply (there
+// is no end to brake for and no point without a full curvature window).
 static std::vector<double>
 buildSpeedProfile(const std::vector<double> &xs, const std::vector<double> &ys,
                   double v_min, double v_max, double max_delta_inc, double dt,
                   double L, int kappa_baseline, double v_end = -1.0,
-                  bool shrink_ends = false) {
+                  bool shrink_ends = false, bool closed_loop = false) {
   const int N = (int)xs.size();
   std::vector<double> v(N, v_max);
   if (N < 3)
@@ -115,9 +119,28 @@ buildSpeedProfile(const std::vector<double> &xs, const std::vector<double> &ys,
   std::vector<double> kappa(N, 0.0), s(N, 0.0);
   for (int i = 1; i < N; ++i)
     s[i] = s[i - 1] + std::hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]);
+
+  // Circuit geometry: the seam segment closes the ring, so the total lap length
+  // is the open path plus that segment, and an index may step past either end.
+  const double seam = std::hypot(xs[0] - xs[N - 1], ys[0] - ys[N - 1]);
+  const double lap = s[N - 1] + seam;
+  auto ring = [&](int i) {
+    return closed_loop ? ((i % N) + N) % N : std::clamp(i, 0, N - 1);
+  };
+  // Arc length walking forward from i to j, through the seam when j is behind i.
+  auto arcFwd = [&](int i, int j) {
+    double d = s[j] - s[i];
+    if (closed_loop && d < 0.0)
+      d += lap;
+    return d;
+  };
+
   for (int i = 0; i < N; ++i) {
     int a = std::max(0, i - k), b = std::min(N - 1, i + k);
-    if (shrink_ends) {
+    if (closed_loop) {
+      a = ring(i - k);
+      b = ring(i + k);
+    } else if (shrink_ends) {
       int r = std::min({k, i, N - 1 - i});
       a = i - r;
       b = i + r;
@@ -126,11 +149,13 @@ buildSpeedProfile(const std::vector<double> &xs, const std::vector<double> &ys,
       continue;
     double h1 = std::atan2(ys[i] - ys[a], xs[i] - xs[a]);
     double h2 = std::atan2(ys[b] - ys[i], xs[b] - xs[i]);
-    double arc = s[b] - s[a];
+    double arc = arcFwd(a, b);
     if (arc > 1e-6)
       kappa[i] = wrapAngle(h2 - h1) / (0.5 * arc);
   }
-  if (shrink_ends) {
+  if (closed_loop) {
+    // Every point has a full window on a circuit, so there is nothing to patch.
+  } else if (shrink_ends) {
     // Only the two end points have no neighbour on one side.
     kappa[0] = kappa[1];
     kappa[N - 1] = kappa[N - 2];
@@ -149,8 +174,9 @@ buildSpeedProfile(const std::vector<double> &xs, const std::vector<double> &ys,
     delta[i] = std::atan(kappa[i] * L);
   const double steer_rate = sp_steer_rate_frac * max_delta_inc / dt; // rad/s
   for (int i = 0; i < N; ++i) {
-    int a = std::max(0, i - 1), b = std::min(N - 1, i + 1);
-    double ds = s[b] - s[a];
+    int a = closed_loop ? ring(i - 1) : std::max(0, i - 1);
+    int b = closed_loop ? ring(i + 1) : std::min(N - 1, i + 1);
+    double ds = arcFwd(a, b);
     double ddelta_ds = ds > 1e-6 ? std::fabs(delta[b] - delta[a]) / ds : 0.0;
     double v_curve = std::sqrt(sp_a_lat / std::max(std::fabs(kappa[i]), 1e-4));
     double v_rate = steer_rate / std::max(ddelta_ds, 1e-5);
@@ -162,10 +188,37 @@ buildSpeedProfile(const std::vector<double> &xs, const std::vector<double> &ys,
   if (sp_window > 0) {
     std::vector<double> raw = v;
     for (int i = 0; i < N; ++i) {
-      int a = std::max(0, i - sp_window), b = std::min(N - 1, i + sp_window);
-      v[i] = *std::min_element(raw.begin() + a, raw.begin() + b + 1);
+      if (closed_loop) {
+        double m = raw[i];
+        for (int j = -sp_window; j <= sp_window; ++j)
+          m = std::min(m, raw[ring(i + j)]);
+        v[i] = m;
+      } else {
+        int a = std::max(0, i - sp_window), b = std::min(N - 1, i + sp_window);
+        v[i] = *std::min_element(raw.begin() + a, raw.begin() + b + 1);
+      }
     }
   }
+  if (closed_loop) {
+    // No destination to brake for; instead the braking and acceleration limits
+    // have to hold across the seam too, so each pass walks the whole ring twice.
+    // One lap propagates every limit, the second settles the point the lap
+    // started on (a braking distance is a few metres against a ~500 m lap).
+    for (int pass = 0; pass < 2; ++pass)
+      for (int i = N - 1; i >= 0; --i) {
+        const int j = ring(i + 1);
+        const double ds = arcFwd(i, j);
+        v[i] = std::min(v[i], std::sqrt(v[j] * v[j] + 2.0 * sp_a_dec * ds));
+      }
+    for (int pass = 0; pass < 2; ++pass)
+      for (int i = 0; i < N; ++i) {
+        const int j = ring(i - 1);
+        const double ds = arcFwd(j, i);
+        v[i] = std::min(v[i], std::sqrt(v[j] * v[j] + 2.0 * sp_a_acc * ds));
+      }
+    return v;
+  }
+
   if (v_end >= 0.0)
     v[N - 1] = std::min(v[N - 1], v_end);
   for (int i = N - 2; i >= 0; --i) {
@@ -341,17 +394,38 @@ double MPCPlanner_path::applySlowZoneSpeedLimit(int nearest_index, double px,
   const double current_s = global_path_s_[idx];
   double limited_v = v_allowed;
 
+  // On a circuit the arc length jumps from the lap length back to 0 at the
+  // seam, so a zone sitting near the start line would never see a vehicle
+  // approaching it from the far side of that jump. Compare signed offsets
+  // round the ring instead of raw arc lengths.
+  double lap = 0.0;
+  if (loop_route_ && global_path_x.size() >= 2) {
+    lap = global_path_s_.back() +
+          std::hypot(global_path_x.front() - global_path_x.back(),
+                     global_path_y.front() - global_path_y.back());
+  }
+
   for (size_t z = 0; z < slow_zones_.size(); ++z) {
     const SlowZone &zone = slow_zones_[z];
     if (zone.path_index < 0) {
       continue;
     }
 
-    const double zone_start_s = zone.path_s - zone.approach_distance;
-    const double zone_end_s = zone.path_s + zone.leave_distance;
     const double distance_to_zone = std::hypot(px - zone.x, py - zone.y);
-    const bool in_path_window =
-        current_s >= zone_start_s && current_s <= zone_end_s;
+    bool in_path_window;
+    if (lap > 1e-6) {
+      double ds = std::fmod(current_s - zone.path_s, lap);
+      if (ds > 0.5 * lap)
+        ds -= lap;
+      else if (ds < -0.5 * lap)
+        ds += lap;
+      in_path_window =
+          ds >= -zone.approach_distance && ds <= zone.leave_distance;
+    } else {
+      const double zone_start_s = zone.path_s - zone.approach_distance;
+      const double zone_end_s = zone.path_s + zone.leave_distance;
+      in_path_window = current_s >= zone_start_s && current_s <= zone_end_s;
+    }
     const bool in_radius = distance_to_zone <= zone.radius;
 
     if (in_path_window || in_radius) {
@@ -525,6 +599,16 @@ void MPCPlanner_path::initialize() {
   // identical to the pre-planner behaviour, which is the validated baseline.
   planner_mode_ = (path_source_ == "planner");
 
+  // Closed-circuit route. Off by default: with loop_route=false every index
+  // expression below keeps its original clamping, so the validated global
+  // baseline is unchanged.
+  private_nh_.param<bool>("loop_route", loop_route_, false);
+  if (loop_route_ && planner_mode_) {
+    ROS_ERROR("loop_route requires path_source=global (the planner path is a "
+              "rolling window, not a circuit); disabling loop_route");
+    loop_route_ = false;
+  }
+
   // Localization source: "lidar" (/odom) or "vio" (vio_pose_to_odom.py). The
   // planner anchors its path with the same pose source, so the two must match.
   private_nh_.param<std::string>("localization_source", localization_source_,
@@ -560,6 +644,7 @@ void MPCPlanner_path::initialize() {
   private_nh_.setParam("LOOK_BACK_DIST", look_back_dist_);
 
   private_nh_.setParam("path_source", path_source_);
+  private_nh_.setParam("loop_route", loop_route_);
   private_nh_.setParam("global_array_topic", global_array_topic_);
   private_nh_.setParam("planner_array_topic", planner_array_topic_);
   private_nh_.setParam("PLAN_TIMEOUT", plan_timeout_);
@@ -634,6 +719,10 @@ void MPCPlanner_path::initialize() {
                "path timeout = %.2f s",
                plan_timeout_);
     }
+    if (loop_route_) {
+      ROS_INFO("loop_route: treating the route as a closed circuit - the index "
+               "wraps at the end and the node keeps driving laps");
+    }
     const std::string &pose_topic = (localization_source_ == "vio")
                                         ? vio_odom_topic_
                                         : lidar_odom_topic_;
@@ -694,11 +783,107 @@ void MPCPlanner_path::setPlan(const std_msgs::Float64MultiArrayConstPtr &msg) {
     global_path_y = savitzkyGolay2(global_path_y, path_smooth_window);
   }
 
+  // Closed circuit: a recorded route usually ends a little PAST its own start,
+  // with a couple of sub-spacing points doubling back (back_garden_07new.csv
+  // ends 0.09 m and 0.15 m steps after overshooting the start by 0.1 m). Those
+  // make the seam segment last->first run against the traffic, which throws
+  // epsi to ~175 deg exactly where the lap closes and pushes the car off the
+  // path. Drop them so the final point sits before the start along the
+  // direction of travel. Headings are measured over k points, since a
+  // sub-centimetre end segment can point anywhere.
+  if (loop_route_ && global_path_x.size() > 20) {
+    const int n0 = (int)global_path_x.size();
+    const int k = std::max(1, std::min(10, n0 / 4));
+    auto hdg = [&](int a, int b) {
+      return std::atan2(global_path_y[b] - global_path_y[a],
+                        global_path_x[b] - global_path_x[a]);
+    };
+    const int max_trim = std::max(1, std::min(20, n0 / 10));
+    int last = n0 - 1;
+    while (last > k && (n0 - 1 - last) < max_trim) {
+      const double h = hdg(last - k, last);
+      // Does the start point still lie ahead of this one, along the heading
+      // here? If not, this point has already passed it and has to go.
+      const double fwd =
+          (global_path_x[0] - global_path_x[last]) * std::cos(h) +
+          (global_path_y[0] - global_path_y[last]) * std::sin(h);
+      if (fwd > 0.0)
+        break;
+      --last;
+    }
+    const int trimmed = n0 - 1 - last;
+    if (trimmed > 0) {
+      global_path_x.resize(last + 1);
+      global_path_y.resize(last + 1);
+      ROS_WARN_ONCE("loop_route: trimmed %d point(s) off the route's end - they "
+                    "ran past the start and doubled back, which would have made "
+                    "the seam segment point against the direction of travel; "
+                    "%d points left",
+                    trimmed, last + 1);
+    }
+  }
+
   global_path_s_.resize(global_path_x.size(), 0.0);
   for (size_t i = 1; i < global_path_x.size(); ++i) {
     const double dx = global_path_x[i] - global_path_x[i - 1];
     const double dy = global_path_y[i] - global_path_y[i - 1];
     global_path_s_[i] = global_path_s_[i - 1] + std::hypot(dx, dy);
+  }
+
+  // A circuit is only tracked correctly if the CSV's two ends actually meet:
+  // the seam becomes a path segment, so a large gap would be driven as a jump.
+  if (loop_route_ && global_path_x.size() >= 2) {
+    const double seam =
+        std::hypot(global_path_x.front() - global_path_x.back(),
+                   global_path_y.front() - global_path_y.back());
+    const double spacing =
+        global_path_s_.back() / double(global_path_x.size() - 1);
+    // The ends meeting is not enough: the heading has to carry through the seam
+    // too. Both headings are measured over several points, because a single
+    // end segment can be a sub-centimetre jitter that points anywhere - the
+    // last two points of back_garden_07new.csv are exactly that.
+    const size_t n = global_path_x.size();
+    const int k = std::max<int>(1, std::min<size_t>(10, n / 4));
+    auto hdg = [&](int a, int b) {
+      return std::atan2(global_path_y[b] - global_path_y[a],
+                        global_path_x[b] - global_path_x[a]);
+    };
+    const double h_start = hdg(0, k);
+    const double h_route = std::fabs(wrapAngle(hdg((int)n - 1 - k, (int)n - 1) - h_start));
+    const double h_seam = std::fabs(wrapAngle(hdg((int)n - 1, 0) - h_start));
+    const double DEG = M_PI / 180.0;
+    if ((int)n > 2 * k && h_route > 60.0 * DEG) {
+      // The route itself turns back on arrival: an out-and-back, not a circuit.
+      ROS_ERROR("loop_route: the route's ends meet (%.2f m) but it arrives "
+                "%.0f deg away from the direction it set off in - this is an "
+                "out-and-back route, not a circuit, and lapping it would need "
+                "a turn on the spot; disabling loop_route",
+                seam, h_route / DEG);
+      loop_route_ = false;
+      speed_profile_.clear();
+    } else if ((int)n > 2 * k && h_seam > 60.0 * DEG) {
+      // The route IS a circuit, but its last points overshoot the start and
+      // double back, so the seam segment runs against the traffic. Driving it
+      // sends epsi to ~175 deg at the seam and the vehicle leaves the path.
+      ROS_ERROR("loop_route: the route IS a circuit (it arrives only %.1f deg "
+                "off its start heading), but the seam segment points %.0f deg "
+                "against the direction of travel - the CSV's last point(s) "
+                "overshoot the start and double back. Trim them so the final "
+                "point sits one spacing BEFORE the start; disabling loop_route",
+                h_route / DEG, h_seam / DEG);
+      loop_route_ = false;
+      speed_profile_.clear();
+    } else if (seam > 3.0 * spacing) {
+      ROS_WARN_THROTTLE(10.0,
+                        "loop_route: the route's ends are %.2f m apart "
+                        "(mean spacing %.2f m); the seam will be driven as a "
+                        "single long segment",
+                        seam, spacing);
+    } else {
+      ROS_INFO_ONCE("loop_route: closed circuit, %zu points, %.1f m lap, "
+                    "seam %.2f m",
+                    global_path_x.size(), global_path_s_.back() + seam, seam);
+    }
   }
 
   updateSlowZonePathIndices();
@@ -708,7 +893,8 @@ void MPCPlanner_path::setPlan(const std_msgs::Float64MultiArrayConstPtr &msg) {
     speed_profile_ = buildSpeedProfile(global_path_x, global_path_y,
                                        min_v_forward_, max_v_forward_,
                                        max_delta_inc_, d_t_, 1.66,
-                                       sp_kappa_baseline);
+                                       sp_kappa_baseline, /*v_end=*/-1.0,
+                                       /*shrink_ends=*/false, loop_route_);
   } else if (speed_profile_enabled && planner_mode_ && planner_profile_enabled) {
     // Planner path: only a few metres ahead are known and the path is replaced
     // every 0.5 s. Re-plan on each one and assume a sharp curve may start right
@@ -881,6 +1067,14 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
 
   if (global_path_x.size() != 0) {
 
+    const int NP = (int)global_path_x.size();
+    // Path index helper for every lookup below. On a closed circuit an index
+    // that steps past either end wraps round the ring; otherwise it clamps
+    // exactly as the original code did, so loop_route=false changes nothing.
+    auto ringIdx = [&](int i) {
+      return loop_route_ ? ((i % NP) + NP) % NP : std::clamp(i, 0, NP - 1);
+    };
+
     // === 參數 ===
     const int GUARD = 3;       // 轉折點前保留幾個索引，避免沾到倒退段
     const size_t WINDOW = 200; // 單次最近點搜尋窗口（依路徑密度調整）
@@ -914,13 +1108,36 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     double nearest_distance = 1e9;
     int candidate_id = (int)begin;
 
-    for (size_t i = begin; i < end; ++i) {
-      double dx = global_path_x[i] - px_proj;
-      double dy = global_path_y[i] - py_proj;
-      double dist = std::hypot(dx, dy);
-      if (dist < nearest_distance) {
-        nearest_distance = dist;
-        candidate_id = (int)i;
+    if (loop_route_) {
+      // Ring scan: walk WINDOW points forward from the last index, wrapping
+      // past the seam, instead of taking a linear slice that stops at the end
+      // of the array. Because it only ever looks forward it also takes over
+      // from the "never walk backwards" latch below, which would otherwise
+      // pin the index at the last waypoint - a step from NP-1 to 0 is forward
+      // on a circuit, but it looks like a jump backwards to that latch.
+      const int scan_from = (last_start_id_ < 0) ? 0 : last_start_id_;
+      const int scan_len =
+          (last_start_id_ < 0) ? NP : std::min(NP, (int)WINDOW);
+      candidate_id = ringIdx(scan_from);
+      for (int k = 0; k < scan_len; ++k) {
+        const int i = ringIdx(scan_from + k);
+        double dx = global_path_x[i] - px_proj;
+        double dy = global_path_y[i] - py_proj;
+        double dist = std::hypot(dx, dy);
+        if (dist < nearest_distance) {
+          nearest_distance = dist;
+          candidate_id = i;
+        }
+      }
+    } else {
+      for (size_t i = begin; i < end; ++i) {
+        double dx = global_path_x[i] - px_proj;
+        double dy = global_path_y[i] - py_proj;
+        double dist = std::hypot(dx, dy);
+        if (dist < nearest_distance) {
+          nearest_distance = dist;
+          candidate_id = (int)i;
+        }
       }
     }
 
@@ -928,9 +1145,18 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     if (nearest_distance > 5.0)
       candidate_id = -1;
 
-    // 保證不回跳（僅在同一段內生效）
-    if (last_start_id_ >= 0 && candidate_id >= 0 &&
-        candidate_id < last_start_id_) {
+    if (loop_route_) {
+      // A backwards step can only mean the seam was just crossed, since the
+      // ring scan above looks forward only.
+      if (last_start_id_ >= 0 && candidate_id >= 0 &&
+          candidate_id < last_start_id_) {
+        ++lap_count_;
+        ROS_INFO("loop_route: crossed the start/finish line, lap %d",
+                 lap_count_);
+      }
+    } else if (last_start_id_ >= 0 && candidate_id >= 0 &&
+               candidate_id < last_start_id_) {
+      // 保證不回跳（僅在同一段內生效）
       candidate_id = last_start_id_;
     }
 
@@ -949,8 +1175,11 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
 
     // End of route. Only meaningful for the static CSV path: the planner's last
     // point is the far end of a rolling 3 s prediction, not a destination, so
-    // reaching it must not stop the vehicle or kill the node.
-    if (!planner_mode_ && start_id >= global_path_x.size() - 2) {
+    // reaching it must not stop the vehicle or kill the node. A circuit has no
+    // end either - the ring scan above carries the index past the seam back to
+    // point 0, so the route simply continues.
+    if (!planner_mode_ && !loop_route_ &&
+        start_id >= global_path_x.size() - 2) {
       ROS_INFO("finish");
       publishStopSignal(true); // 發布停止訊號
       ros::shutdown();         // 結束 ROS 節點
@@ -989,11 +1218,20 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
       // Forward-only: scan every segment of the 7-point path.
       i_begin = 0;
       i_end = Y - 1;
+    } else if (loop_route_) {
+      // Every segment, the seam one (Y-1 -> 0) included: without it the
+      // projection would have nothing to latch onto between the last waypoint
+      // and the first, and cte would blow up right where the lap closes.
+      i_begin = 0;
+      i_end = Y;
     } else if (vt > V_EPS) {
       // 前進：只找 turn_index_ 之前的線段
+      // turn_index_ is forced to 10000 in turnIndexCallback, far past the end
+      // of a 718-point route, so this has to be capped at the last segment -
+      // without the cap the loop below read global_path_x[i + 1] out of bounds.
       i_begin = 0;
-      i_end = (turn_index_ > 0) ? (size_t)turn_index_
-                                : 0; // 不含 turn_index_ 本身 (i_end 是不含上限)
+      i_end = std::min((size_t)std::max(turn_index_, 0),
+                       Y - 1); // 不含 turn_index_ 本身 (i_end 是不含上限)
     } else if (vt < -V_EPS) {
       // 倒退：只找 turn_index_ 之後的線段
       i_begin = std::min((size_t)turn_index_, Y - 1);
@@ -1006,8 +1244,9 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     }
 
     for (size_t i = i_begin; i < i_end; ++i) { // 只有這行的邊界改了
+      const int i_far = ringIdx((int)i + 1);
       Eigen::Vector2d p1(global_path_x[i], global_path_y[i]);
-      Eigen::Vector2d p2(global_path_x[i + 1], global_path_y[i + 1]);
+      Eigen::Vector2d p2(global_path_x[i_far], global_path_y[i_far]);
 
       Eigen::Vector2d v = p2 - p1;
       double denom = v.squaredNorm();
@@ -1037,14 +1276,19 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     // the next; at a vertex both sides give the average of the two headings.
     if (nearestIndex >= 0) {
       auto segHeading = [&](int k) {
-        return std::atan2(global_path_y[k + 1] - global_path_y[k],
-                          global_path_x[k + 1] - global_path_x[k]);
+        const int k0 = ringIdx(k);
+        const int k1 = ringIdx(k + 1);
+        return std::atan2(global_path_y[k1] - global_path_y[k0],
+                          global_path_x[k1] - global_path_x[k0]);
       };
-      if (nearest_t < 0.5 && nearestIndex - 1 >= (int)i_begin) {
+      // On a circuit every segment has a neighbour on both sides.
+      const bool has_prev = loop_route_ || nearestIndex - 1 >= (int)i_begin;
+      const bool has_next = loop_route_ || nearestIndex + 1 < (int)i_end;
+      if (nearest_t < 0.5 && has_prev) {
         double h_prev = segHeading(nearestIndex - 1);
         refHeading = regularizeAngle(
             h_prev + regularizeAngle(refHeading - h_prev) * (nearest_t + 0.5));
-      } else if (nearest_t >= 0.5 && nearestIndex + 1 < (int)i_end) {
+      } else if (nearest_t >= 0.5 && has_next) {
         double h_next = segHeading(nearestIndex + 1);
         refHeading = regularizeAngle(
             refHeading +
@@ -1123,16 +1367,25 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
       const int N = (int)global_path_x.size();
       if (N < 3)
         return 0.0;
-      if (i <= 0)
-        i = 1;
-      if (i >= N - 1)
-        i = N - 2;
+      int im, ip; // neighbours of i, wrapped on a circuit
+      if (loop_route_) {
+        i = ringIdx(i);
+        im = ringIdx(i - 1);
+        ip = ringIdx(i + 1);
+      } else {
+        if (i <= 0)
+          i = 1;
+        if (i >= N - 1)
+          i = N - 2;
+        im = i - 1;
+        ip = i + 1;
+      }
 
       // 當地前/後段弧長
-      double dx_f = global_path_x[i + 1] - global_path_x[i];
-      double dy_f = global_path_y[i + 1] - global_path_y[i];
-      double dx_b = global_path_x[i] - global_path_x[i - 1];
-      double dy_b = global_path_y[i] - global_path_y[i - 1];
+      double dx_f = global_path_x[ip] - global_path_x[i];
+      double dy_f = global_path_y[ip] - global_path_y[i];
+      double dx_b = global_path_x[i] - global_path_x[im];
+      double dy_b = global_path_y[i] - global_path_y[im];
 
       double ds_f = std::hypot(dx_f, dy_f);
       double ds_b = std::hypot(dx_b, dy_b);
@@ -1141,14 +1394,14 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
         return 0.0; // 避免除以 0
 
       // 仍採「等距中心差分」的簡化，但 ds 用當地弧長（很小改動、已顯著穩定）
-      double dx = (global_path_x[i + 1] - global_path_x[i - 1]) / (2.0 * ds);
-      double dy = (global_path_y[i + 1] - global_path_y[i - 1]) / (2.0 * ds);
-      double ddx = (global_path_x[i + 1] - 2.0 * global_path_x[i] +
-                    global_path_x[i - 1]) /
-                   (ds * ds);
-      double ddy = (global_path_y[i + 1] - 2.0 * global_path_y[i] +
-                    global_path_y[i - 1]) /
-                   (ds * ds);
+      double dx = (global_path_x[ip] - global_path_x[im]) / (2.0 * ds);
+      double dy = (global_path_y[ip] - global_path_y[im]) / (2.0 * ds);
+      double ddx =
+          (global_path_x[ip] - 2.0 * global_path_x[i] + global_path_x[im]) /
+          (ds * ds);
+      double ddy =
+          (global_path_y[ip] - 2.0 * global_path_y[i] + global_path_y[im]) /
+          (ds * ds);
 
       double denom = std::pow(dx * dx + dy * dy, 1.5);
       if (denom < 1e-9)
@@ -1192,8 +1445,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
       double kappa_weighted_sum = 0.0;
       double weight_sum = 0.0;
       for (int j = -M_back; j <= M_front; ++j) {
-        int ii = std::clamp(base + steer_lookahead + j, 0,
-                            (int)global_path_x.size() - 1);
+        int ii = ringIdx(base + steer_lookahead + j);
         double weight = double(max_dist + 1 - std::abs(j));
         kappa_weighted_sum += weight * computeKappaAt(ii);
         weight_sum += weight;
@@ -1214,7 +1466,13 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
       const double window_centroid = 120.0 / 45.0; // points, see windowKappa
       ff_base += lookahead_m / spacing - window_centroid;
     }
-    ff_base = std::clamp(ff_base, 0.0, double(global_path_x.size() - 1));
+    if (loop_route_) {
+      // Wrap rather than clamp: the feedforward window may straddle the seam.
+      ff_base = std::fmod(std::fmod(ff_base, double(NP)) + double(NP),
+                          double(NP));
+    } else {
+      ff_base = std::clamp(ff_base, 0.0, double(global_path_x.size() - 1));
+    }
     const int ff_i0 = (int)ff_base;
     const double ff_f = ff_base - ff_i0;
     kappa_avg_steering =
@@ -1227,10 +1485,18 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     if (clean_ff_enabled && !reversed_mode &&
         clean_kappa_.size() == global_path_x.size()) {
       const int n = (int)clean_kappa_.size();
-      double pos = std::clamp(nearestIndex + nearest_t + clean_ff_lookahead,
-                              0.0, double(n - 1));
-      int i0 = std::min((int)pos, n - 1), i1 = std::min(i0 + 1, n - 1);
-      double f = pos - i0;
+      double pos = nearestIndex + nearest_t + clean_ff_lookahead;
+      int i0, i1;
+      if (loop_route_) {
+        pos = std::fmod(std::fmod(pos, double(n)) + double(n), double(n));
+        i0 = ((int)pos) % n;
+        i1 = (i0 + 1) % n;
+      } else {
+        pos = std::clamp(pos, 0.0, double(n - 1));
+        i0 = std::min((int)pos, n - 1);
+        i1 = std::min(i0 + 1, n - 1);
+      }
+      double f = pos - (double)(int)pos;
       kappa_avg_steering = (1.0 - f) * clean_kappa_[i0] + f * clean_kappa_[i1];
     }
     // kappa_avg_steering = kappa_sum / double(M_back + M_front);
@@ -1255,7 +1521,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     // // ----------------------------------------------------------------
 
    for (int k = -look_back_dist_; k < look_ahead_dist; ++k) {
-      int ii = std::clamp(nearestIndex + k, 0, (int)global_path_x.size() - 1);
+      int ii = ringIdx(nearestIndex + k);
       double k_temp = std::fabs(computeKappaAt(ii));
 
       // 找出未來這段路「最彎」的那個值
@@ -1360,7 +1626,7 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
                              speed_profile_.size() == global_path_x.size() &&
                              nearestIndex >= 0;
     if (use_profile) {
-      int i1 = std::min(nearestIndex + 1, (int)speed_profile_.size() - 1);
+      int i1 = ringIdx(nearestIndex + 1);
       v_allowed = (1.0 - nearest_t) * speed_profile_[nearestIndex] +
                   nearest_t * speed_profile_[i1];
     }
@@ -1391,9 +1657,12 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
     // last point is the far end of a rolling 3 s prediction that is replaced
     // every 0.5 s, so treating it as a destination would brake the vehicle to a
     // stop once per inference cycle.
-    int N_end_slow = 1; // 終點前20m降速 //40
+    int N_end_slow = 20; // 終點前20m降速 //40
     int remain_pts = (int)global_path_x.size() - nearestIndex;
-    bool endpoint_phase = (!planner_mode_ && remain_pts <= N_end_slow);
+    // A circuit has no endpoint to slow down for: the speed profile already
+    // carries the braking limits across the seam.
+    bool endpoint_phase =
+        (!planner_mode_ && !loop_route_ && remain_pts <= N_end_slow);
     if (endpoint_phase) {
       double ratio = double(remain_pts) / double(N_end_slow);
       double factor = std::pow(ratio, 3.0);
@@ -1486,10 +1755,6 @@ void MPCPlanner_path::computelocalpath(const nav_msgs::OdometryConstPtr &msg) {
 
     Eigen::Vector4d s(px_proj, py_proj, theta_proj, v_body);
     Eigen::Vector4d s_d(projection.x(), projection.y(), refHeading_adj, v_ref);
-    Eigen::Vector2d p0(global_path_x[nearestIndex - 1],
-                       global_path_y[nearestIndex - 1]);
-    Eigen::Vector2d p1(global_path_x[nearestIndex],
-                       global_path_y[nearestIndex]);
 
     // 1) 計算參考加速度 a_ref = (v_ref - prev_v_ref_before)/dt
 

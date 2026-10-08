@@ -229,6 +229,16 @@
             // CSV route) do not apply. Cached once in initialize() so the string
             // compare stays out of the control loop.
             bool planner_mode_ = false;
+
+            // Closed-circuit route: wrap the CSV path's last waypoint back to its
+            // first one and keep driving instead of stopping there. Only valid for
+            // the global source (the planner path is a rolling window, not a
+            // circuit) and only sensible when the CSV's two ends meet. Every piece
+            // of index arithmetic below (nearest-point search, Frenet projection,
+            // curvature windows, speed profile) wraps modulo the path length when
+            // this is set, and clamps as before when it is not.
+            bool loop_route_ = false;
+            int lap_count_ = 0; // completed laps, for logging only
             double last_plan_stamp_ = -1.0; // ros::Time::now() of the last setPlan, <0 = none yet
             double plan_timeout_ = 1.5;     // seconds without a new path before stopping
             bool plan_timed_out_ = false;   // latched so the warning logs once per outage
